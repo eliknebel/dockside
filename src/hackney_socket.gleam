@@ -1,4 +1,4 @@
-// FORKED FROM gleam/hackney to support http+unix sockets
+// FORKED FROM https://github.com/gleam-lang/hackney to support http+unix sockets
 import gleam/dynamic.{Dynamic}
 import gleam/http.{Method}
 import gleam/http/request.{Request}
@@ -7,12 +7,7 @@ import gleam/bit_string
 import gleam/bit_builder.{BitBuilder}
 import gleam/string
 import gleam/list
-
-pub type Error {
-  InvalidUtf8Response
-  // TODO: refine error type
-  Other(Dynamic)
-}
+import gleam/hackney.{Error, InvalidUtf8Response}
 
 external fn ffi_send(
   Method,
