@@ -1,5 +1,4 @@
 // FORKED FROM https://github.com/gleam-lang/hackney to support http+unix sockets
-import gleam/dynamic.{Dynamic}
 import gleam/http.{Method}
 import gleam/http/request.{Request}
 import gleam/http/response.{Response}

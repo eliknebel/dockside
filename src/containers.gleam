@@ -6,8 +6,14 @@ import gleam/dynamic.{field, int, string}
 import docker.{Docker}
 import gleam/hackney
 import gleam/io
+import gleam/map.{Map}
+import utils
 
-pub type Container {
+pub opaque type Port {
+  Port(ip: String, private_port: Int, public_port: Int, type_: String)
+}
+
+pub opaque type Container {
   Container(
     id: String,
     names: List(String),
@@ -15,12 +21,25 @@ pub type Container {
     image_id: String,
     command: String,
     created: Int,
+    ports: List(Port),
+    labels: Map(String, String),
+    state: String,
+    status: String,
   )
 }
 
 fn decode_container_list(s: String) {
+  let port_decoder =
+    dynamic.decode4(
+      Port,
+      field("IP", string),
+      field("PrivatePort", int),
+      field("PublicPort", int),
+      field("Type", string),
+    )
+
   let container_decoder =
-    dynamic.decode6(
+    utils.decode10(
       Container,
       field("Id", string),
       field("Names", dynamic.list(string)),
@@ -28,6 +47,10 @@ fn decode_container_list(s: String) {
       field("ImageID", string),
       field("Command", string),
       field("Created", int),
+      field("Ports", dynamic.list(port_decoder)),
+      field("Labels", dynamic.map(string, string)),
+      field("State", string),
+      field("Status", string),
     )
 
   case json.decode(from: s, using: dynamic.list(of: container_decoder)) {
