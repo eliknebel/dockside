@@ -3,8 +3,7 @@ import gleam/http/request
 import gleam/http/response.{Response}
 import gleam/json
 import gleam/dynamic.{field, int, string}
-import docker.{Docker}
-import gleam/hackney
+import docker.{Docker, DockerAPIError}
 import gleam/io
 import gleam/map.{Map}
 import utils
@@ -69,10 +68,10 @@ pub fn list(d: Docker) {
   |> request.set_method(Get)
   |> request.set_path("/containers/json")
   |> docker.send_request(d)
-  |> fn(res: Result(Response(String), hackney.Error)) {
+  |> fn(res: Result(Response(String), DockerAPIError)) {
     case res {
       Ok(r) -> decode_container_list(r.body)
-      Error(_) -> Error("request error")
+      Error(DockerAPIError(m)) -> Error(m)
     }
   }
 }
