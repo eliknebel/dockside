@@ -1,10 +1,10 @@
 import gleam/http.{Get}
-import gleam/http/request
 import gleam/http/response.{Response}
 import gleam/json
-import gleam/dynamic.{Dynamic, bool, field, int, string}
+import gleam/dynamic.{DecodeError, Dynamic, bool, field, int, string}
 import docker.{Docker, DockerAPIError}
-import gleam/io
+import gleam/string
+import gleam/list
 import gleam/map.{Map}
 import gleam/option.{Option}
 import decoders.{optional_field}
@@ -22,13 +22,13 @@ pub opaque type HostConfig {
   HostConfig(network_mode: String)
 }
 
-// pub opaque type Network {
-//   Network(d: Dynamic)
-// }
+pub opaque type Network {
+  Network(d: Dynamic)
+}
 
-// pub opaque type NetworkSettings {
-//   NetworkSettings(networks: List(Network))
-// }
+pub opaque type NetworkSettings {
+  NetworkSettings(networks: List(Network))
+}
 
 pub opaque type Mount {
   Mount(
@@ -54,74 +54,80 @@ pub opaque type Container {
     status: String,
     ports: List(Port),
     labels: Map(String, String),
+    host_config: HostConfig,
+    mounts: List(Mount),
     size_rw: Option(Int),
     size_root_fs: Option(Int),
-    host_config: HostConfig,
-    // network_settings: Map(String, Dynamic),
-    mounts: List(Mount),
+    network_settings: Option(Map(String, Dynamic)),
   )
 }
 
-fn decode_container_list(s: String) {
-  let port_decoder =
-    dynamic.decode4(
-      Port,
-      optional_field("IP", string),
-      optional_field("PrivatePort", int),
-      optional_field("PublicPort", int),
-      optional_field("Type", string),
-    )
+fn port_decoder() {
+  dynamic.decode4(
+    Port,
+    optional_field("IP", string),
+    optional_field("PrivatePort", int),
+    optional_field("PublicPort", int),
+    optional_field("Type", string),
+  )
+}
 
-  let host_config_decoder = fn(x: Dynamic) {
+fn host_config_decoder() {
+  fn(x: Dynamic) {
     case field("NetworkMode", string)(x) {
       Ok(network_mode) -> Ok(HostConfig(network_mode))
       Error(e) -> Error(e)
     }
   }
+}
 
-  // let network_settings_decoder = fn(x: Dynamic) {
-  //   case field("NetworkSettings", dynamic.map(string, dynamic.dynamic))(x) {
-  //     Ok(network_settings) -> Ok(network_settings)
-  //     Error(e) -> Error(e)
-  //   }
-  // }
-  let mount_decoder =
-    dynamic.decode7(
-      Mount,
-      field("Name", string),
-      field("Source", string),
-      field("Destination", string),
-      field("Driver", string),
-      field("Mode", string),
-      field("RW", bool),
-      field("Propagation", string),
-    )
+fn mount_decoder() {
+  dynamic.decode7(
+    Mount,
+    field("Name", string),
+    field("Source", string),
+    field("Destination", string),
+    field("Driver", string),
+    field("Mode", string),
+    field("RW", bool),
+    field("Propagation", string),
+  )
+}
 
-  let container_decoder =
-    decoders.decode14(
-      Container,
-      field("Id", string),
-      field("Names", dynamic.list(string)),
-      field("Image", string),
-      field("ImageID", string),
-      field("Command", string),
-      field("Created", int),
-      field("State", string),
-      field("Status", string),
-      field("Ports", dynamic.list(port_decoder)),
-      field("Labels", dynamic.map(string, string)),
-      optional_field("SizeRw", int),
-      optional_field("SizeRootFs", int),
-      field("HostConfig", host_config_decoder),
-      // field("NetworkSettings", network_settings_decoder),
-      field("Mounts", dynamic.list(mount_decoder)),
-    )
+fn network_settings_decoder() {
+  fn(x: Dynamic) {
+    case field("NetworkSettings", dynamic.map(string, dynamic.dynamic))(x) {
+      Ok(network_settings) -> Ok(network_settings)
+      Error(e) -> Error(e)
+    }
+  }
+}
 
-  case json.decode(from: s, using: dynamic.list(of: container_decoder)) {
+fn container_decoder() {
+  decoders.decode15(
+    Container,
+    field("Id", string),
+    field("Names", dynamic.list(string)),
+    field("Image", string),
+    field("ImageID", string),
+    field("Command", string),
+    field("Created", int),
+    field("State", string),
+    field("Status", string),
+    field("Ports", dynamic.list(port_decoder())),
+    field("Labels", dynamic.map(string, string)),
+    field("HostConfig", host_config_decoder()),
+    field("Mounts", dynamic.list(mount_decoder())),
+    optional_field("SizeRw", int),
+    optional_field("SizeRootFs", int),
+    optional_field("NetworkSettings", network_settings_decoder()),
+  )
+}
+
+fn decode_container_list(body: String) {
+  case json.decode(body, dynamic.list(of: container_decoder())) {
     Ok(r) -> Ok(r)
-    e ->
-      io.debug(e)
-      |> fn(_) { Error("decode_container_list error") }
+    Error(e) -> Error(prettify_json_decode_error(e))
   }
 }
 
@@ -129,10 +135,7 @@ fn decode_container_list(s: String) {
 ///
 /// Returns a list of containers.
 pub fn list(d: Docker) {
-  request.new()
-  |> request.set_method(Get)
-  |> request.set_path("/containers/json")
-  |> docker.send_request(d)
+  docker.send_request(d, Get, "/containers/json")
   |> fn(res: Result(Response(String), DockerAPIError)) {
     case res {
       Ok(r) -> decode_container_list(r.body)
@@ -145,8 +148,29 @@ pub fn list(d: Docker) {
 ///
 /// Returns a list of images.
 pub fn images(d: Docker) {
-  request.new()
-  |> request.set_method(Get)
-  |> request.set_path("/images/json")
-  |> docker.send_request(d)
+  docker.send_request(d, Get, "/images/json")
+}
+
+fn prettify_json_decode_error(error: json.DecodeError) {
+  case error {
+    json.UnexpectedEndOfInput -> "UnexpectedEndOfInput"
+    json.UnexpectedByte(_byte, _position) -> "UnexpectedByte"
+    json.UnexpectedSequence(_byte, _position) -> "UnexpectedSequence"
+    json.UnexpectedFormat(decode_errors) ->
+      list.map(
+        decode_errors,
+        fn(e) {
+          let DecodeError(expected: expected, found: found, path: path) = e
+          string.concat([
+            "expected ",
+            expected,
+            " but found ",
+            found,
+            " at ",
+            string.join(path, "/"),
+          ])
+        },
+      )
+      |> string.join(",")
+  }
 }

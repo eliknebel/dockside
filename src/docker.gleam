@@ -1,13 +1,17 @@
 import gleam/option.{None, Option, Some}
+import gleam/string
+import gleam/http.{Method}
 import gleam/http/request.{Request}
 import gleam/http/response.{Response}
 import gleam/hackney
 import hackney_socket
 
+const api_version = "v1.30"
+
 // Defines a docker connection
 pub type Docker {
-  DockerHttp(host: String, port: Option(Int))
   DockerSocket(socket_path: String)
+  DockerHttp(host: String, port: Option(Int))
 }
 
 pub fn local() {
@@ -23,19 +27,25 @@ pub type DockerAPIError {
 }
 
 pub fn send_request(
-  request: Request(String),
   d: Docker,
+  method: Method,
+  path: String,
 ) -> Result(Response(String), DockerAPIError) {
   case d {
     DockerHttp(host, port) ->
-      request
+      request.new()
+      |> request.set_method(method)
+      |> request.set_path(string.concat(["/", api_version, path]))
       |> request.set_host(host)
       |> maybe_set_port(port)
       |> hackney.send()
       |> result_or_error()
 
     DockerSocket(socket_path) ->
-      hackney_socket.send_socket(request, socket_path)
+      request.new()
+      |> request.set_method(method)
+      |> request.set_path(string.concat(["/", api_version, path]))
+      |> hackney_socket.send_socket(socket_path)
       |> result_or_error()
   }
 }
@@ -54,7 +64,7 @@ fn result_or_error(
     Error(hackney.Other(_)) ->
       Error(DockerAPIError(message: "An unknown error occurred"))
     Error(hackney.InvalidUtf8Response) ->
-      Error(DockerAPIError(message: "Invalid Utf8 Response"))
+      Error(DockerAPIError(message: "Invalid UTF-8 Response"))
     Ok(response) -> Ok(response)
   }
 }
