@@ -153,9 +153,10 @@ pub fn images(d: Docker) {
 
 fn prettify_json_decode_error(error: json.DecodeError) {
   case error {
-    json.UnexpectedEndOfInput -> "UnexpectedEndOfInput"
-    json.UnexpectedByte(_byte, _position) -> "UnexpectedByte"
-    json.UnexpectedSequence(_byte, _position) -> "UnexpectedSequence"
+    json.UnexpectedEndOfInput -> "JSON DecodeError: UnexpectedEndOfInput"
+    json.UnexpectedByte(_byte, _position) -> "JSON DecodeError: UnexpectedByte"
+    json.UnexpectedSequence(_byte, _position) ->
+      "JSON DecodeError: UnexpectedSequence"
     json.UnexpectedFormat(decode_errors) ->
       list.map(
         decode_errors,
