@@ -12,6 +12,9 @@ const api_version = "v1.30"
 pub type Docker {
   DockerSocket(socket_path: String)
   DockerHttp(host: String, port: Option(Int))
+  DockerHttpMock(
+    mock_fn: fn(Method, String) -> Result(Response(String), DockerAPIError),
+  )
 }
 
 pub fn local() {
@@ -47,6 +50,9 @@ pub fn send_request(
       |> request.set_path(string.concat(["/", api_version, path]))
       |> hackney_socket.send_socket(socket_path)
       |> result_or_error()
+
+    // used for unit tests
+    DockerHttpMock(mock_fn) -> mock_fn(method, path)
   }
 }
 

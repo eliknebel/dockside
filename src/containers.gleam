@@ -9,7 +9,7 @@ import gleam/map.{Map}
 import gleam/option.{Option}
 import decoders.{optional_field}
 
-pub opaque type Port {
+pub type Port {
   Port(
     ip: Option(String),
     private_port: Option(Int),
@@ -18,19 +18,19 @@ pub opaque type Port {
   )
 }
 
-pub opaque type HostConfig {
+pub type HostConfig {
   HostConfig(network_mode: String)
 }
 
-pub opaque type Network {
+pub type Network {
   Network(d: Dynamic)
 }
 
-pub opaque type NetworkSettings {
+pub type NetworkSettings {
   NetworkSettings(networks: List(Network))
 }
 
-pub opaque type Mount {
+pub type Mount {
   Mount(
     name: String,
     source: String,
@@ -42,7 +42,7 @@ pub opaque type Mount {
   )
 }
 
-pub opaque type Container {
+pub type Container {
   Container(
     id: String,
     names: List(String),
