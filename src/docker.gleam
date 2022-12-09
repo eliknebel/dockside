@@ -6,7 +6,7 @@ import gleam/http/response.{Response}
 import gleam/hackney
 import hackney_socket
 
-const api_version = "v1.30"
+const api_version = "v1.41"
 
 // Defines a docker connection
 pub type Docker {

@@ -1,13 +1,12 @@
 import gleam/http.{Get}
 import gleam/http/response.{Response}
 import gleam/json
-import gleam/dynamic.{DecodeError, Dynamic, bool, field, int, string}
+import gleam/dynamic.{Dynamic, bool, field, int, string}
 import docker.{Docker, DockerAPIError}
-import gleam/string
-import gleam/list
 import gleam/map.{Map}
 import gleam/option.{Option}
 import decoders.{optional_field}
+import utils.{prettify_json_decode_error}
 
 pub type Port {
   Port(
@@ -141,37 +140,5 @@ pub fn list(d: Docker) {
       Ok(r) -> decode_container_list(r.body)
       Error(DockerAPIError(m)) -> Error(m)
     }
-  }
-}
-
-/// # List images
-///
-/// Returns a list of images.
-pub fn images(d: Docker) {
-  docker.send_request(d, Get, "/images/json")
-}
-
-fn prettify_json_decode_error(error: json.DecodeError) {
-  case error {
-    json.UnexpectedEndOfInput -> "JSON DecodeError: UnexpectedEndOfInput"
-    json.UnexpectedByte(_byte, _position) -> "JSON DecodeError: UnexpectedByte"
-    json.UnexpectedSequence(_byte, _position) ->
-      "JSON DecodeError: UnexpectedSequence"
-    json.UnexpectedFormat(decode_errors) ->
-      list.map(
-        decode_errors,
-        fn(e) {
-          let DecodeError(expected: expected, found: found, path: path) = e
-          string.concat([
-            "expected ",
-            expected,
-            " but found ",
-            found,
-            " at ",
-            string.join(path, "/"),
-          ])
-        },
-      )
-      |> string.join(",")
   }
 }
