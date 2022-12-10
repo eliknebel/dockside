@@ -10,13 +10,14 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    env:
+      "ImageOS": "ubuntu20"
     steps:
       - uses: actions/checkout@v2.0.0
       - uses: erlef/setup-beam@v1.9.0
         with:
-          otp-version: "24"
-          rebar3-version: "3.16.1"
-          gleam-version: "0.25"
+          otp-version: "23.2"
+          gleam-version: "0.22.1"
       - run: gleam format --check src test
       - run: gleam deps download
       - run: gleam test
