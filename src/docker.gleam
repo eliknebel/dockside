@@ -13,7 +13,7 @@ import gleam/uri
 import gleam/hackney.{InvalidUtf8Response}
 import gleam/json
 
-pub const api_version = "v1.41"
+pub const api_version = "v1.51"
 
 pub const linux_default_socket = "/var/run/docker.sock"
 
@@ -63,7 +63,8 @@ pub fn send_request(
       |> maybe_set_port(port)
       |> hackney.send()
       |> result_or_error()
-    }
+      |> ensure_success_or_error()
+}
 
     DockerSocket(socket_path) -> {
       request.new()
@@ -74,10 +75,63 @@ pub fn send_request(
       |> maybe_set_body(body)
       |> socket_send(socket_path)
       |> result_or_error()
-    }
+      |> ensure_success_or_error()
+}
 
     // used for unit tests
     DockerMock(mock_fn) -> mock_fn(method, path)
+  }
+}
+
+pub fn build_path(path: String, query: List(#(String, String))) -> String {
+  case query {
+    [] -> path
+    _ -> path <> "?" <> encode_query(query)
+  }
+}
+
+pub fn encode_query(query: List(#(String, String))) -> String {
+  query
+  |> list.map(fn(pair) {
+    uri.percent_encode(pair.0) <> "=" <> uri.percent_encode(pair.1)
+  })
+  |> string.join("&")
+}
+
+pub fn send_request_with_query(
+  client: DockerClient,
+  method: Method,
+  path: String,
+  query: List(#(String, String)),
+  body: Option(String),
+  headers: Option(List(#(String, String))),
+) -> Result(Response(String), DockerError) {
+  let full_path = build_path(path, query)
+  send_request(client, method, full_path, body, headers)
+}
+
+pub fn map_error(result: Result(a, DockerError)) -> Result(a, String) {
+  case result {
+    Ok(value) -> Ok(value)
+    Error(error) -> Error(humanize_error(error))
+  }
+}
+
+fn ensure_success(
+  response: Response(String),
+) -> Result(Response(String), DockerError) {
+  case response.status {
+    status if status >= 200 && status < 300 -> Ok(response)
+    status -> Error(UnexpectedStatus(status, response.body))
+  }
+}
+
+fn ensure_success_or_error(
+  result: Result(Response(String), DockerError),
+) -> Result(Response(String), DockerError) {
+  case result {
+    Ok(response) -> ensure_success(response)
+    Error(error) -> Error(error)
   }
 }
 

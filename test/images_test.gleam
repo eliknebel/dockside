@@ -1,4 +1,5 @@
 import docker.{DockerMock}
+import gleam/http.{Delete, Get, Post}
 import gleam/http/response
 import gleam/option
 import gleeunit
@@ -80,4 +81,41 @@ pub fn list_test() {
       ),
     ]),
   )
+}
+
+pub fn inspect_path_test() {
+  DockerMock(fn(method, path) {
+    should.equal(method, Get)
+    should.equal(path, "/images/alpine/json")
+    Ok(response.Response(status: 200, headers: [], body: "{}"))
+  })
+  |> images.inspect("alpine")
+  |> should.equal(Ok("{}"))
+}
+
+pub fn remove_query_test() {
+  DockerMock(fn(method, path) {
+    should.equal(method, Delete)
+    should.equal(path, "/images/alpine?force=true&noprune=false")
+    Ok(response.Response(status: 200, headers: [], body: ""))
+  })
+  |> images.remove("alpine", images.RemoveOptions(force: True, noprune: False))
+  |> should.equal(Ok(Nil))
+}
+
+pub fn create_header_test() {
+  DockerMock(fn(method, path) {
+    should.equal(method, Post)
+    should.equal(path, "/images/create?fromImage=alpine&tag=latest")
+    Ok(response.Response(status: 200, headers: [], body: "{}"))
+  })
+  |> images.create(
+    option.Some("alpine"),
+    option.None,
+    option.None,
+    option.Some("latest"),
+    option.None,
+    option.None,
+  )
+  |> should.equal(Ok("{}"))
 }

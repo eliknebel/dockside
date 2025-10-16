@@ -1,6 +1,7 @@
 import containers
 import docker.{DockerMock}
 import gleam/dict
+import gleam/http.{Get, Post}
 import gleam/http/response
 import gleam/option
 import gleeunit
@@ -86,4 +87,24 @@ pub fn list_test() {
       ),
     ]),
   )
+}
+
+pub fn inspect_path_test() {
+  DockerMock(fn(method, path) {
+    should.equal(method, Get)
+    should.equal(path, "/containers/example/json?size=true")
+    Ok(response.Response(status: 200, headers: [], body: "{}"))
+  })
+  |> containers.inspect("example", True)
+  |> should.equal(Ok("{}"))
+}
+
+pub fn start_path_test() {
+  DockerMock(fn(method, path) {
+    should.equal(method, Post)
+    should.equal(path, "/containers/run/start?detachKeys=ctrl-p%2Cctrl-q")
+    Ok(response.Response(status: 204, headers: [], body: ""))
+  })
+  |> containers.start("run", option.Some("ctrl-p,ctrl-q"))
+  |> should.equal(Ok(Nil))
 }

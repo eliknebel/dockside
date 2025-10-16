@@ -13,6 +13,16 @@ gleam test  # Run the tests
 gleam shell # Run an Erlang shell
 ```
 
+## Engine API Coverage
+
+Dockside targets the Docker Engine API `v1.51`, exposing high-level helpers for the most frequently used resources:
+
+- `containers`: list, lifecycle (create/start/stop/restart/kill/pause/unpause/remove), inspection/logs/stats, update/wait/prune.
+- `images`: list (with options), inspect/history/search/create/push/pull/tag/remove/prune.
+- `networks`, `volumes`, `exec`, `system`, `swarm`, `services`, `tasks`, `nodes`, `secrets`, `configs`, `plugins`, `distribution`, `auth`.
+
+Each module wraps the documented REST endpoint (see `/docs/plan.md`) and returns either decoded data or raw JSON/text so callers can compose their own workflows. All functions accept a `docker.DockerClient`, which can target a remote host or the local Unix socket.
+
 ## Installation
 
 If available on Hex this package can be added to your Gleam project:
