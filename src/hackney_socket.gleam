@@ -1,48 +1,56 @@
 // FORKED FROM https://github.com/gleam-lang/hackney to support http+unix sockets
-import gleam/http.{Method}
-import gleam/http/request.{Request}
-import gleam/http/response.{Response}
-import gleam/bit_string
-import gleam/bit_builder.{BitBuilder}
-import gleam/string
+import gleam/bit_array
+import gleam/bytes_tree
+import gleam/hackney.{type Error, InvalidUtf8Response}
+import gleam/http
+import gleam/http/request as http_request
+import gleam/http/response as http_response
 import gleam/list
-import gleam/hackney.{Error, InvalidUtf8Response}
+import gleam/string
 
-external fn ffi_send(
-  Method,
-  String,
-  List(http.Header),
-  BitBuilder,
-) -> Result(Response(BitString), Error) =
-  "gleam_hackney_ffi" "send"
+@external(erlang, "gleam_hackney_ffi", "send")
+fn ffi_send(
+  method: http.Method,
+  url: String,
+  headers: List(http.Header),
+  body: bytes_tree.BytesTree,
+) -> Result(http_response.Response(BitArray), Error)
 
-external fn urlencode(String) -> String =
-  "hackney_url" "urlencode"
+@external(erlang, "hackney_url", "urlencode")
+fn urlencode(value: String) -> String
 
 pub fn send_socket_bits(
-  request: Request(BitBuilder),
+  request: http_request.Request(bytes_tree.BytesTree),
   socket_path: String,
-) -> Result(Response(BitString), Error) {
-  try response =
+) -> Result(http_response.Response(BitArray), Error) {
+  case
     ["http+unix://", urlencode(socket_path), request.path]
     |> string.join("")
     |> ffi_send(request.method, _, request.headers, request.body)
-  let headers = list.map(response.headers, normalise_header)
-  Ok(Response(..response, headers: headers))
+  {
+    Ok(response) -> {
+      let headers = list.map(response.headers, normalise_header)
+      Ok(http_response.Response(..response, headers: headers))
+    }
+    Error(error) -> Error(error)
+  }
 }
 
 pub fn send_socket(
-  req: Request(String),
+  req: http_request.Request(String),
   socket_path: String,
-) -> Result(Response(String), Error) {
-  try resp =
+) -> Result(http_response.Response(String), Error) {
+  case
     req
-    |> request.map(bit_builder.from_string)
+    |> http_request.map(bytes_tree.from_string)
     |> send_socket_bits(socket_path)
-
-  case bit_string.to_string(resp.body) {
-    Ok(body) -> Ok(response.set_body(resp, body))
-    Error(_) -> Error(InvalidUtf8Response)
+  {
+    Ok(resp) ->
+      case bit_array.to_string(resp.body) {
+        Ok(body) -> Ok(http_response.set_body(resp, body))
+        Error(_) -> Error(InvalidUtf8Response)
+      }
+    Error(error) -> Error(error)
   }
 }
 

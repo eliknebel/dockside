@@ -1,9 +1,9 @@
+import docker.{DockerMock}
+import gleam/http/response
+import gleam/option
 import gleeunit
 import gleeunit/should
-import images.{Image}
-import gleam/http/response.{Response}
-import docker.{DockerHttpMock}
-import gleam/option.{None, Some}
+import images
 
 pub fn main() {
   gleeunit.main()
@@ -11,8 +11,8 @@ pub fn main() {
 
 // gleeunit test functions end in `_test`
 pub fn list_test() {
-  DockerHttpMock(fn(_method, _path) {
-    Ok(Response(
+  DockerMock(fn(_method, _path) {
+    Ok(response.Response(
       status: 200,
       headers: [],
       body: "[
@@ -50,32 +50,34 @@ pub fn list_test() {
     ))
   })
   |> images.list()
-  |> should.equal(Ok([
-    Image(
-      id: "sha256:46331d942d6350436f64e614d75725f6de3bb5c63e266e236e04389820a234c4",
-      parent_id: "",
-      repo_tags: ["hello-world:latest"],
-      repo_digests: Some([
-        "hello-world@sha256:faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af",
-      ]),
-      created: 1647706378,
-      size: 9136,
-      shared_size: -1,
-      virtual_size: 9136,
-      labels: None,
-      containers: -1,
-    ),
-    Image(
-      id: "sha256:073eff6bf98cd430c8921d86b67e41c42366fe4909668fbc3c824f3e44827353",
-      parent_id: "",
-      repo_tags: ["postgres:latest"],
-      repo_digests: None,
-      created: 1644884411,
-      size: 353724805,
-      shared_size: -1,
-      virtual_size: 353724805,
-      labels: None,
-      containers: -1,
-    ),
-  ]))
+  |> should.equal(
+    Ok([
+      images.Image(
+        id: "sha256:46331d942d6350436f64e614d75725f6de3bb5c63e266e236e04389820a234c4",
+        parent_id: "",
+        repo_tags: ["hello-world:latest"],
+        repo_digests: option.Some([
+          "hello-world@sha256:faa03e786c97f07ef34423fccceeec2398ec8a5759259f94d99078f264e9d7af",
+        ]),
+        created: 1_647_706_378,
+        size: 9136,
+        shared_size: -1,
+        virtual_size: 9136,
+        labels: option.None,
+        containers: -1,
+      ),
+      images.Image(
+        id: "sha256:073eff6bf98cd430c8921d86b67e41c42366fe4909668fbc3c824f3e44827353",
+        parent_id: "",
+        repo_tags: ["postgres:latest"],
+        repo_digests: option.None,
+        created: 1_644_884_411,
+        size: 353_724_805,
+        shared_size: -1,
+        virtual_size: 353_724_805,
+        labels: option.None,
+        containers: -1,
+      ),
+    ]),
+  )
 }

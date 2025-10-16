@@ -1,19 +1,19 @@
+import docker.{type DockerClient}
+import gleam/dict
+import gleam/dynamic
+import gleam/dynamic/decode
 import gleam/http.{Get}
-import gleam/http/response.{Response}
+import gleam/http/response
 import gleam/json
-import gleam/dynamic.{Dynamic, bool, field, int, string}
-import docker.{Docker, DockerAPIError}
-import gleam/map.{Map}
-import gleam/option.{Option}
-import decoders.{optional_field}
-import utils.{prettify_json_decode_error}
+import gleam/option.{None}
+import utils
 
 pub type Port {
   Port(
-    ip: Option(String),
-    private_port: Option(Int),
-    public_port: Option(Int),
-    type_: Option(String),
+    ip: option.Option(String),
+    private_port: option.Option(Int),
+    public_port: option.Option(Int),
+    type_: option.Option(String),
   )
 }
 
@@ -22,7 +22,7 @@ pub type HostConfig {
 }
 
 pub type Network {
-  Network(d: Dynamic)
+  Network(d: dynamic.Dynamic)
 }
 
 pub type NetworkSettings {
@@ -52,93 +52,137 @@ pub type Container {
     state: String,
     status: String,
     ports: List(Port),
-    labels: Map(String, String),
+    labels: dict.Dict(String, String),
     host_config: HostConfig,
     mounts: List(Mount),
-    size_rw: Option(Int),
-    size_root_fs: Option(Int),
-    network_settings: Option(Map(String, Dynamic)),
+    size_rw: option.Option(Int),
+    size_root_fs: option.Option(Int),
+    network_settings: option.Option(dict.Dict(String, dynamic.Dynamic)),
   )
 }
 
-fn port_decoder() {
-  dynamic.decode4(
-    Port,
-    optional_field("IP", string),
-    optional_field("PrivatePort", int),
-    optional_field("PublicPort", int),
-    optional_field("Type", string),
+fn port_decoder() -> decode.Decoder(Port) {
+  use ip <- decode.optional_field(
+    "IP",
+    option.None,
+    decode.optional(decode.string),
   )
-}
-
-fn host_config_decoder() {
-  fn(x: Dynamic) {
-    case field("NetworkMode", string)(x) {
-      Ok(network_mode) -> Ok(HostConfig(network_mode))
-      Error(e) -> Error(e)
-    }
-  }
-}
-
-fn mount_decoder() {
-  dynamic.decode7(
-    Mount,
-    field("Name", string),
-    field("Source", string),
-    field("Destination", string),
-    field("Driver", string),
-    field("Mode", string),
-    field("RW", bool),
-    field("Propagation", string),
+  use private_port <- decode.optional_field(
+    "PrivatePort",
+    option.None,
+    decode.optional(decode.int),
   )
-}
-
-fn network_settings_decoder() {
-  fn(x: Dynamic) {
-    case field("NetworkSettings", dynamic.map(string, dynamic.dynamic))(x) {
-      Ok(network_settings) -> Ok(network_settings)
-      Error(e) -> Error(e)
-    }
-  }
-}
-
-fn container_decoder() {
-  decoders.decode15(
-    Container,
-    field("Id", string),
-    field("Names", dynamic.list(string)),
-    field("Image", string),
-    field("ImageID", string),
-    field("Command", string),
-    field("Created", int),
-    field("State", string),
-    field("Status", string),
-    field("Ports", dynamic.list(port_decoder())),
-    field("Labels", dynamic.map(string, string)),
-    field("HostConfig", host_config_decoder()),
-    field("Mounts", dynamic.list(mount_decoder())),
-    optional_field("SizeRw", int),
-    optional_field("SizeRootFs", int),
-    optional_field("NetworkSettings", network_settings_decoder()),
+  use public_port <- decode.optional_field(
+    "PublicPort",
+    option.None,
+    decode.optional(decode.int),
   )
+  use type_ <- decode.optional_field(
+    "Type",
+    option.None,
+    decode.optional(decode.string),
+  )
+
+  decode.success(Port(
+    ip: ip,
+    private_port: private_port,
+    public_port: public_port,
+    type_: type_,
+  ))
+}
+
+fn host_config_decoder() -> decode.Decoder(HostConfig) {
+  use network_mode <- decode.field("NetworkMode", decode.string)
+  decode.success(HostConfig(network_mode))
+}
+
+fn mount_decoder() -> decode.Decoder(Mount) {
+  use name <- decode.field("Name", decode.string)
+  use source <- decode.field("Source", decode.string)
+  use destination <- decode.field("Destination", decode.string)
+  use driver <- decode.field("Driver", decode.string)
+  use mode <- decode.field("Mode", decode.string)
+  use rw <- decode.field("RW", decode.bool)
+  use propagation <- decode.field("Propagation", decode.string)
+
+  decode.success(Mount(
+    name: name,
+    source: source,
+    destination: destination,
+    driver: driver,
+    mode: mode,
+    rw: rw,
+    propagation: propagation,
+  ))
+}
+
+fn container_decoder() -> decode.Decoder(Container) {
+  use id <- decode.field("Id", decode.string)
+  use names <- decode.field("Names", decode.list(decode.string))
+  use image <- decode.field("Image", decode.string)
+  use image_id <- decode.field("ImageID", decode.string)
+  use command <- decode.field("Command", decode.string)
+  use created <- decode.field("Created", decode.int)
+  use state <- decode.field("State", decode.string)
+  use status <- decode.field("Status", decode.string)
+  use ports <- decode.field("Ports", decode.list(port_decoder()))
+  use labels <- decode.field(
+    "Labels",
+    decode.dict(decode.string, decode.string),
+  )
+  use host_config <- decode.field("HostConfig", host_config_decoder())
+  use mounts <- decode.field("Mounts", decode.list(mount_decoder()))
+  use size_rw <- decode.optional_field(
+    "SizeRw",
+    option.None,
+    decode.optional(decode.int),
+  )
+  use size_root_fs <- decode.optional_field(
+    "SizeRootFs",
+    option.None,
+    decode.optional(decode.int),
+  )
+  use network_settings <- decode.optional_field(
+    "NetworkSettings",
+    option.None,
+    decode.optional(decode.dict(decode.string, decode.dynamic)),
+  )
+
+  decode.success(Container(
+    id: id,
+    names: names,
+    image: image,
+    image_id: image_id,
+    command: command,
+    created: created,
+    state: state,
+    status: status,
+    ports: ports,
+    labels: labels,
+    host_config: host_config,
+    mounts: mounts,
+    size_rw: size_rw,
+    size_root_fs: size_root_fs,
+    network_settings: network_settings,
+  ))
 }
 
 fn decode_container_list(body: String) {
-  case json.decode(body, dynamic.list(of: container_decoder())) {
+  case json.parse(from: body, using: decode.list(container_decoder())) {
     Ok(r) -> Ok(r)
-    Error(e) -> Error(prettify_json_decode_error(e))
+    Error(e) -> Error(utils.prettify_json_decode_error(e))
   }
 }
 
 /// # List containers
 ///
 /// Returns a list of containers.
-pub fn list(d: Docker) {
-  docker.send_request(d, Get, "/containers/json")
-  |> fn(res: Result(Response(String), DockerAPIError)) {
+pub fn list(client: DockerClient) {
+  docker.send_request(client, Get, "/containers/json", None, None)
+  |> fn(res: Result(response.Response(String), docker.DockerError)) {
     case res {
       Ok(r) -> decode_container_list(r.body)
-      Error(DockerAPIError(m)) -> Error(m)
+      Error(error) -> Error(docker.humanize_error(error))
     }
   }
 }
