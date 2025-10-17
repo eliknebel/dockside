@@ -1,10 +1,10 @@
-import docker.{type DockerClient}
+import dockside/docker.{type DockerClient}
+import dockside/request_helpers
 import gleam/http.{Get}
 import gleam/option.{
   type Option, None, map as option_map, unwrap as option_unwrap,
 }
 import gleam/uri
-import request_helpers
 
 /// # List tasks
 ///

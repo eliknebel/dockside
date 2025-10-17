@@ -1,10 +1,10 @@
-import docker.{DockerMock}
+import dockside/docker.{DockerMock}
+import dockside/images
 import gleam/http.{Delete, Get, Post}
 import gleam/http/response
 import gleam/option
 import gleeunit
 import gleeunit/should
-import images
 
 pub fn main() {
   gleeunit.main()

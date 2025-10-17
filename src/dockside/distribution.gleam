@@ -1,8 +1,8 @@
-import docker.{type DockerClient}
+import dockside/docker.{type DockerClient}
+import dockside/request_helpers
 import gleam/http.{Get}
 import gleam/option.{None}
 import gleam/uri
-import request_helpers
 
 /// # Inspect distribution image
 ///

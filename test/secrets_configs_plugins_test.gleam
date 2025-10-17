@@ -1,12 +1,12 @@
-import configs
-import docker.{DockerMock}
+import dockside/configs
+import dockside/docker.{DockerMock}
+import dockside/plugins
+import dockside/secrets
 import gleam/http.{Delete, Get, Post}
 import gleam/http/response
 import gleam/option
 import gleeunit
 import gleeunit/should
-import plugins
-import secrets
 
 pub fn main() {
   gleeunit.main()
@@ -91,10 +91,7 @@ pub fn secrets_create_path_test() {
 pub fn secrets_list_filters_test() {
   DockerMock(fn(method, path) {
     should.equal(method, Get)
-    should.equal(
-      path,
-      "/secrets?filters=%7B%22name%22%3A%5B%22secret%22%5D%7D",
-    )
+    should.equal(path, "/secrets?filters=%7B%22name%22%3A%5B%22secret%22%5D%7D")
     Ok(response.Response(status: 200, headers: [], body: "[]"))
   })
   |> secrets.list(option.Some("{\"name\":[\"secret\"]}"))
@@ -184,10 +181,7 @@ pub fn plugins_inspect_path_test() {
 pub fn plugins_upgrade_query_test() {
   DockerMock(fn(method, path) {
     should.equal(method, Post)
-    should.equal(
-      path,
-      "/plugins/foo/upgrade?remote=foo%2Flatest",
-    )
+    should.equal(path, "/plugins/foo/upgrade?remote=foo%2Flatest")
     Ok(response.Response(status: 200, headers: [], body: "{}"))
   })
   |> plugins.upgrade("foo", option.Some("foo/latest"), option.None, "{}")

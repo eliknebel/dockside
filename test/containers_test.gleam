@@ -1,5 +1,5 @@
-import containers
-import docker.{DockerMock}
+import dockside/containers
+import dockside/docker.{DockerMock}
 import gleam/dict
 import gleam/http.{Get, Post}
 import gleam/http/response

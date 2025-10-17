@@ -1,4 +1,4 @@
-import docker
+import dockside/docker
 import gleam/http/response
 import gleam/int
 import gleam/list

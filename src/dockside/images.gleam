@@ -1,4 +1,6 @@
-import docker.{type DockerClient}
+import dockside/docker.{type DockerClient}
+import dockside/request_helpers
+import dockside/utils
 import gleam/dict
 import gleam/dynamic/decode
 import gleam/http.{Delete, Get, Post}
@@ -6,8 +8,6 @@ import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some, unwrap as option_unwrap}
 import gleam/uri
-import request_helpers
-import utils
 
 pub type Image {
   Image(

@@ -1,13 +1,13 @@
-import docker.{DockerMock}
+import dockside/docker.{DockerMock}
+import dockside/nodes
+import dockside/services
+import dockside/swarm
+import dockside/tasks
 import gleam/http.{Delete, Get, Post}
 import gleam/http/response
 import gleam/option
 import gleeunit
 import gleeunit/should
-import nodes
-import services
-import swarm
-import tasks
 
 pub fn main() {
   gleeunit.main()
@@ -140,15 +140,16 @@ pub fn services_update_query_test() {
 }
 
 pub fn services_logs_options_test() {
-  let options = services.LogsOptions(
-    follow: True,
-    stdout: True,
-    stderr: False,
-    since: option.Some(42),
-    timestamps: True,
-    tail: option.Some("10"),
-    details: False,
-  )
+  let options =
+    services.LogsOptions(
+      follow: True,
+      stdout: True,
+      stderr: False,
+      since: option.Some(42),
+      timestamps: True,
+      tail: option.Some("10"),
+      details: False,
+    )
 
   DockerMock(fn(method, path) {
     should.equal(method, Get)
@@ -175,10 +176,7 @@ pub fn services_remove_path_test() {
 pub fn tasks_list_filters_test() {
   DockerMock(fn(method, path) {
     should.equal(method, Get)
-    should.equal(
-      path,
-      "/tasks?filters=%7B%22node%22%3A%5B%22node-1%22%5D%7D",
-    )
+    should.equal(path, "/tasks?filters=%7B%22node%22%3A%5B%22node-1%22%5D%7D")
     Ok(response.Response(status: 200, headers: [], body: "[]"))
   })
   |> tasks.list(option.Some("{\"node\":[\"node-1\"]}"))

@@ -1,10 +1,10 @@
-import docker.{type DockerClient}
+import dockside/docker.{type DockerClient}
+import dockside/request_helpers
 import gleam/http.{Delete, Get, Post}
 import gleam/option.{
   type Option, None, Some, map as option_map, unwrap as option_unwrap,
 }
 import gleam/uri
-import request_helpers
 
 fn network_path(id: String, suffix: String) -> String {
   "/networks/" <> uri.percent_encode(id) <> suffix

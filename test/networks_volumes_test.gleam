@@ -1,11 +1,11 @@
-import docker.{DockerMock}
+import dockside/docker.{DockerMock}
+import dockside/networks
+import dockside/volumes
 import gleam/http.{Delete, Get, Post}
 import gleam/http/response
 import gleam/option
 import gleeunit
 import gleeunit/should
-import networks
-import volumes
 
 pub fn main() {
   gleeunit.main()
@@ -71,7 +71,11 @@ pub fn networks_prune_filters_test() {
       path,
       "/networks/prune?filters=%7B%22dangling%22%3A%5B%22true%22%5D%7D",
     )
-    Ok(response.Response(status: 200, headers: [], body: "{\"NetworksDeleted\":[]}"))
+    Ok(response.Response(
+      status: 200,
+      headers: [],
+      body: "{\"NetworksDeleted\":[]}",
+    ))
   })
   |> networks.prune(option.Some("{\"dangling\":[\"true\"]}"))
   |> should.equal(Ok("{\"NetworksDeleted\":[]}"))
@@ -127,7 +131,11 @@ pub fn volumes_prune_filters_test() {
       path,
       "/volumes/prune?filters=%7B%22label%22%3A%5B%22env%3Ddev%22%5D%7D",
     )
-    Ok(response.Response(status: 200, headers: [], body: "{\"VolumesDeleted\":[]}"))
+    Ok(response.Response(
+      status: 200,
+      headers: [],
+      body: "{\"VolumesDeleted\":[]}",
+    ))
   })
   |> volumes.prune(option.Some("{\"label\":[\"env=dev\"]}"))
   |> should.equal(Ok("{\"VolumesDeleted\":[]}"))

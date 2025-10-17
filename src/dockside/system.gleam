@@ -1,7 +1,7 @@
-import docker.{type DockerClient}
+import dockside/docker.{type DockerClient}
+import dockside/request_helpers
 import gleam/http.{Get, Post}
 import gleam/option.{None}
-import request_helpers
 
 /// # System ping
 ///

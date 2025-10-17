@@ -1,7 +1,7 @@
-import docker.{type DockerClient}
+import dockside/docker.{type DockerClient}
+import dockside/request_helpers
 import gleam/http.{Post}
 import gleam/option.{None, Some}
-import request_helpers
 
 /// # Check auth configuration
 ///

@@ -1,11 +1,11 @@
-import docker.{type DockerClient}
+import dockside/docker.{type DockerClient}
+import dockside/request_helpers
 import gleam/http.{Delete, Get, Post}
 import gleam/list
 import gleam/option.{
   type Option, None, Some, map as option_map, unwrap as option_unwrap,
 }
 import gleam/uri
-import request_helpers
 
 fn plugin_path(name: String, suffix: String) -> String {
   "/plugins/" <> uri.percent_encode(name) <> suffix

@@ -1,9 +1,9 @@
-import docker.{type DockerClient}
+import dockside/docker.{type DockerClient}
+import dockside/request_helpers
 import gleam/http.{Get, Post}
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
-import request_helpers
 
 /// # Inspect swarm
 ///

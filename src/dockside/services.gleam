@@ -1,4 +1,5 @@
-import docker.{type DockerClient}
+import dockside/docker.{type DockerClient}
+import dockside/request_helpers
 import gleam/http.{Delete, Get, Post}
 import gleam/int
 import gleam/list
@@ -6,7 +7,6 @@ import gleam/option.{
   type Option, None, Some, map as option_map, unwrap as option_unwrap,
 }
 import gleam/uri
-import request_helpers
 
 pub type LogsOptions {
   LogsOptions(

@@ -1,5 +1,5 @@
-import docker.{DockerMock}
-import exec
+import dockside/docker.{DockerMock}
+import dockside/exec
 import gleam/http.{Get, Post}
 import gleam/http/response
 import gleam/option

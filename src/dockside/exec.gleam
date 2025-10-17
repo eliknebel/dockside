@@ -1,8 +1,8 @@
-import docker.{type DockerClient}
+import dockside/docker.{type DockerClient}
+import dockside/request_helpers
 import gleam/http.{Get, Post}
 import gleam/option.{type Option, None, Some}
 import gleam/uri
-import request_helpers
 
 fn exec_path(id: String, suffix: String) -> String {
   "/exec/" <> uri.percent_encode(id) <> suffix
