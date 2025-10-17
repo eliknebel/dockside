@@ -48,8 +48,8 @@ pub fn send_request(
   client: DockerClient,
   method: Method,
   path: String,
-  body: Option(String),
   headers: Option(List(#(String, String))),
+  body: Option(String),
 ) -> Result(Response(String), DockerError) {
   case client {
     DockerHttp(host, port) -> {
@@ -64,7 +64,7 @@ pub fn send_request(
       |> hackney.send()
       |> result_or_error()
       |> ensure_success_or_error()
-}
+    }
 
     DockerSocket(socket_path) -> {
       request.new()
@@ -76,38 +76,11 @@ pub fn send_request(
       |> socket_send(socket_path)
       |> result_or_error()
       |> ensure_success_or_error()
-}
+    }
 
     // used for unit tests
     DockerMock(mock_fn) -> mock_fn(method, path)
   }
-}
-
-pub fn build_path(path: String, query: List(#(String, String))) -> String {
-  case query {
-    [] -> path
-    _ -> path <> "?" <> encode_query(query)
-  }
-}
-
-pub fn encode_query(query: List(#(String, String))) -> String {
-  query
-  |> list.map(fn(pair) {
-    uri.percent_encode(pair.0) <> "=" <> uri.percent_encode(pair.1)
-  })
-  |> string.join("&")
-}
-
-pub fn send_request_with_query(
-  client: DockerClient,
-  method: Method,
-  path: String,
-  query: List(#(String, String)),
-  body: Option(String),
-  headers: Option(List(#(String, String))),
-) -> Result(Response(String), DockerError) {
-  let full_path = build_path(path, query)
-  send_request(client, method, full_path, body, headers)
 }
 
 pub fn map_error(result: Result(a, DockerError)) -> Result(a, String) {

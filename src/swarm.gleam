@@ -1,108 +1,64 @@
 import docker.{type DockerClient}
-import gleam/http.{type Method, Get, Post}
-import gleam/http/response
-import gleam/option
-import gleam/result
-import gleam/list
+import gleam/http.{Get, Post}
 import gleam/int
-
-fn request(
-  client: DockerClient,
-  method: Method,
-  path: String,
-  query: List(#(String, String)),
-  body: option.Option(String),
-) -> Result(response.Response(String), docker.DockerError) {
-  docker.send_request_with_query(client, method, path, query, body, option.None)
-}
-
-fn to_body(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(String, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(r) { r.body })
-}
-
-fn to_nil(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(Nil, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(_) { Nil })
-}
+import gleam/list
+import gleam/option.{None, Some}
+import request_helpers
 
 /// # Inspect swarm
 ///
 /// Wraps `GET /swarm`.
 pub fn inspect(client: DockerClient) -> Result(String, String) {
-  request(client, Get, "/swarm", [], option.None)
-  |> to_body
+  docker.send_request(client, Get, "/swarm", None, None)
+  |> request_helpers.expect_body
 }
 
 /// # Init swarm
 ///
 /// Wraps `POST /swarm/init`.
-pub fn init(
-  client: DockerClient,
-  body: String,
-) -> Result(String, String) {
-  request(client, Post, "/swarm/init", [], option.Some(body))
-  |> to_body
+pub fn init(client: DockerClient, body: String) -> Result(String, String) {
+  docker.send_request(client, Post, "/swarm/init", None, Some(body))
+  |> request_helpers.expect_body
 }
 
 /// # Join swarm
 ///
 /// Wraps `POST /swarm/join`.
-pub fn join(
-  client: DockerClient,
-  body: String,
-) -> Result(Nil, String) {
-  request(client, Post, "/swarm/join", [], option.Some(body))
-  |> to_nil
-}
-
-fn bool_to_string(value: Bool) -> String {
-  case value {
-    True -> "true"
-    False -> "false"
-  }
+pub fn join(client: DockerClient, body: String) -> Result(Nil, String) {
+  docker.send_request(client, Post, "/swarm/join", None, Some(body))
+  |> request_helpers.expect_nil
 }
 
 /// # Leave swarm
 ///
 /// Wraps `POST /swarm/leave`.
-pub fn leave(
-  client: DockerClient,
-  force: Bool,
-) -> Result(Nil, String) {
-  request(
+pub fn leave(client: DockerClient, force: Bool) -> Result(Nil, String) {
+  docker.send_request(
     client,
     Post,
-    "/swarm/leave",
-    [#("force", bool_to_string(force))],
-    option.None,
+    request_helpers.path_with_query("/swarm/leave", [
+      #("force", request_helpers.bool_to_string(force)),
+    ]),
+    None,
+    None,
   )
-  |> to_nil
+  |> request_helpers.expect_nil
 }
 
 /// # Unlock key
 ///
 /// Wraps `GET /swarm/unlockkey`.
 pub fn unlock_key(client: DockerClient) -> Result(String, String) {
-  request(client, Get, "/swarm/unlockkey", [], option.None)
-  |> to_body
+  docker.send_request(client, Get, "/swarm/unlockkey", None, None)
+  |> request_helpers.expect_body
 }
 
 /// # Unlock swarm
 ///
 /// Wraps `POST /swarm/unlock`.
-pub fn unlock(
-  client: DockerClient,
-  body: String,
-) -> Result(Nil, String) {
-  request(client, Post, "/swarm/unlock", [], option.Some(body))
-  |> to_nil
+pub fn unlock(client: DockerClient, body: String) -> Result(Nil, String) {
+  docker.send_request(client, Post, "/swarm/unlock", None, Some(body))
+  |> request_helpers.expect_nil
 }
 
 /// # Update swarm
@@ -119,12 +75,24 @@ pub fn update(
     []
     |> list.append([#("version", int.to_string(version))])
     |> list.append([
-      #("rotateManagerToken", bool_to_string(rotate_manager_token)),
+      #(
+        "rotateManagerToken",
+        request_helpers.bool_to_string(rotate_manager_token),
+      ),
     ])
     |> list.append([
-      #("rotateWorkerToken", bool_to_string(rotate_worker_token)),
+      #(
+        "rotateWorkerToken",
+        request_helpers.bool_to_string(rotate_worker_token),
+      ),
     ])
 
-  request(client, Post, "/swarm/update", query, option.Some(body))
-  |> to_nil
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query("/swarm/update", query),
+    None,
+    Some(body),
+  )
+  |> request_helpers.expect_nil
 }

@@ -1,68 +1,14 @@
 import docker.{type DockerClient}
-import gleam/http.{type Method, Delete, Get, Post}
-import gleam/http/response
-import gleam/int
+import gleam/http.{Delete, Get, Post}
 import gleam/list
-import gleam/option
-import gleam/result
+import gleam/option.{
+  type Option, None, Some, map as option_map, unwrap as option_unwrap,
+}
 import gleam/uri
-
-fn request(
-  client: DockerClient,
-  method: Method,
-  path: String,
-  query: List(#(String, String)),
-  body: option.Option(String),
-  headers: option.Option(List(#(String, String))),
-) -> Result(response.Response(String), docker.DockerError) {
-  docker.send_request_with_query(client, method, path, query, body, headers)
-}
-
-fn to_body(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(String, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(r) { r.body })
-}
-
-fn to_nil(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(Nil, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(_) { Nil })
-}
+import request_helpers
 
 fn plugin_path(name: String, suffix: String) -> String {
   "/plugins/" <> uri.percent_encode(name) <> suffix
-}
-
-fn append_optional(
-  query: List(#(String, String)),
-  key: String,
-  value: option.Option(String),
-) -> List(#(String, String)) {
-  case value {
-    option.Some(v) -> list.append(query, [#(key, v)])
-    option.None -> query
-  }
-}
-
-fn int_option_to_string(
-  value: option.Option(Int),
-) -> option.Option(String) {
-  case value {
-    option.Some(v) -> option.Some(int.to_string(v))
-    option.None -> option.None
-  }
-}
-
-fn bool_to_string(value: Bool) -> String {
-  case value {
-    True -> "true"
-    False -> "false"
-  }
 }
 
 /// # List plugins
@@ -70,27 +16,35 @@ fn bool_to_string(value: Bool) -> String {
 /// Wraps `GET /plugins`.
 pub fn list(
   client: DockerClient,
-  filters: option.Option(String),
+  filters: Option(String),
 ) -> Result(String, String) {
-  docker.send_request_with_query(
+  let query =
+    filters
+    |> option_map(fn(f) { [#("filters", f)] })
+    |> option_unwrap(or: [])
+
+  docker.send_request(
     client,
     Get,
-    "/plugins",
-    filters
-    |> option.map(fn(f) { [#("filters", f)] })
-    |> option.unwrap(or: []),
-    option.None,
-    option.None,
+    request_helpers.path_with_query("/plugins", query),
+    None,
+    None,
   )
-  |> to_body
+  |> request_helpers.expect_body
 }
 
 /// # Inspect plugin
 ///
 /// Wraps `GET /plugins/{name}/json`.
 pub fn inspect(client: DockerClient, name: String) -> Result(String, String) {
-  request(client, Get, plugin_path(name, "/json"), [], option.None, option.None)
-  |> to_body
+  docker.send_request(
+    client,
+    Get,
+    request_helpers.path_with_query(plugin_path(name, "/json"), []),
+    None,
+    None,
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Enable plugin
@@ -99,11 +53,23 @@ pub fn inspect(client: DockerClient, name: String) -> Result(String, String) {
 pub fn enable(
   client: DockerClient,
   name: String,
-  timeout: option.Option(Int),
+  timeout: Option(Int),
 ) -> Result(Nil, String) {
-  let query = [] |> append_optional("timeout", int_option_to_string(timeout))
-  request(client, Post, plugin_path(name, "/enable"), query, option.None, option.None)
-  |> to_nil
+  let query =
+    []
+    |> request_helpers.append_optional(
+      "timeout",
+      request_helpers.int_option_to_string(timeout),
+    )
+
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query(plugin_path(name, "/enable"), query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_nil
 }
 
 /// # Disable plugin
@@ -114,15 +80,16 @@ pub fn disable(
   name: String,
   force: Bool,
 ) -> Result(Nil, String) {
-  request(
+  docker.send_request(
     client,
     Post,
-    plugin_path(name, "/disable"),
-    [#("force", bool_to_string(force))],
-    option.None,
-    option.None,
+    request_helpers.path_with_query(plugin_path(name, "/disable"), [
+      #("force", request_helpers.bool_to_string(force)),
+    ]),
+    None,
+    None,
   )
-  |> to_nil
+  |> request_helpers.expect_nil
 }
 
 /// # Remove plugin
@@ -133,15 +100,16 @@ pub fn remove(
   name: String,
   force: Bool,
 ) -> Result(Nil, String) {
-  request(
+  docker.send_request(
     client,
     Delete,
-    plugin_path(name, ""),
-    [#("force", bool_to_string(force))],
-    option.None,
-    option.None,
+    request_helpers.path_with_query(plugin_path(name, ""), [
+      #("force", request_helpers.bool_to_string(force)),
+    ]),
+    None,
+    None,
   )
-  |> to_nil
+  |> request_helpers.expect_nil
 }
 
 /// # Install plugin
@@ -150,22 +118,27 @@ pub fn remove(
 pub fn install(
   client: DockerClient,
   remote: String,
-  name: option.Option(String),
-  registry_auth: option.Option(String),
+  name: Option(String),
+  registry_auth: Option(String),
 ) -> Result(String, String) {
   let query =
     []
     |> list.append([#("remote", remote)])
-    |> append_optional("name", name)
+    |> request_helpers.append_optional("name", name)
 
-  let headers =
-    case registry_auth {
-      option.Some(auth) -> option.Some([#("X-Registry-Auth", auth)])
-      option.None -> option.None
-    }
+  let headers = case registry_auth {
+    Some(auth) -> Some([#("X-Registry-Auth", auth)])
+    None -> None
+  }
 
-  request(client, Post, "/plugins/pull", query, option.None, headers)
-  |> to_body
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query("/plugins/pull", query),
+    headers,
+    None,
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Upgrade plugin
@@ -174,36 +147,37 @@ pub fn install(
 pub fn upgrade(
   client: DockerClient,
   name: String,
-  remote: option.Option(String),
-  registry_auth: option.Option(String),
+  remote: Option(String),
+  registry_auth: Option(String),
   body: String,
 ) -> Result(String, String) {
-  let query = [] |> append_optional("remote", remote)
+  let query = [] |> request_helpers.append_optional("remote", remote)
 
-  let headers =
-    case registry_auth {
-      option.Some(auth) -> option.Some([#("X-Registry-Auth", auth)])
-      option.None -> option.None
-    }
+  let headers = case registry_auth {
+    Some(auth) -> Some([#("X-Registry-Auth", auth)])
+    None -> None
+  }
 
-  request(
+  docker.send_request(
     client,
     Post,
-    plugin_path(name, "/upgrade"),
-    query,
-    option.Some(body),
+    request_helpers.path_with_query(plugin_path(name, "/upgrade"), query),
     headers,
+    Some(body),
   )
-  |> to_body
+  |> request_helpers.expect_body
 }
 
 /// # Push plugin
 ///
 /// Wraps `POST /plugins/{name}/push`.
-pub fn push(
-  client: DockerClient,
-  name: String,
-) -> Result(String, String) {
-  request(client, Post, plugin_path(name, "/push"), [], option.None, option.None)
-  |> to_body
+pub fn push(client: DockerClient, name: String) -> Result(String, String) {
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query(plugin_path(name, "/push"), []),
+    None,
+    None,
+  )
+  |> request_helpers.expect_body
 }

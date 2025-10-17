@@ -1,47 +1,38 @@
 import docker.{type DockerClient}
 import gleam/http.{Get, Post}
-import gleam/http/response
-import gleam/option
-import gleam/result
-
-fn to_body(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(String, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(r) { r.body })
-}
+import gleam/option.{None}
+import request_helpers
 
 /// # System ping
 ///
 /// Wraps `GET /system/ping`.
 pub fn ping(client: DockerClient) -> Result(String, String) {
-  docker.send_request(client, Get, "/system/ping", option.None, option.None)
-  |> to_body
+  docker.send_request(client, Get, "/system/ping", None, None)
+  |> request_helpers.expect_body
 }
 
 /// # System info
 ///
 /// Wraps `GET /system/info`.
 pub fn info(client: DockerClient) -> Result(String, String) {
-  docker.send_request(client, Get, "/system/info", option.None, option.None)
-  |> to_body
+  docker.send_request(client, Get, "/system/info", None, None)
+  |> request_helpers.expect_body
 }
 
 /// # System version
 ///
 /// Wraps `GET /version`.
 pub fn version(client: DockerClient) -> Result(String, String) {
-  docker.send_request(client, Get, "/version", option.None, option.None)
-  |> to_body
+  docker.send_request(client, Get, "/version", None, None)
+  |> request_helpers.expect_body
 }
 
 /// # System data usage
 ///
 /// Wraps `GET /system/df`.
 pub fn df(client: DockerClient) -> Result(String, String) {
-  docker.send_request(client, Get, "/system/df", option.None, option.None)
-  |> to_body
+  docker.send_request(client, Get, "/system/df", None, None)
+  |> request_helpers.expect_body
 }
 
 /// # System events
@@ -52,21 +43,20 @@ pub fn events(
   client: DockerClient,
   query: List(#(String, String)),
 ) -> Result(String, String) {
-  docker.send_request_with_query(
+  docker.send_request(
     client,
     Get,
-    "/events",
-    query,
-    option.None,
-    option.None,
+    request_helpers.path_with_query("/events", query),
+    None,
+    None,
   )
-  |> to_body
+  |> request_helpers.expect_body
 }
 
 /// # System prune
 ///
 /// Wraps `POST /system/prune`.
 pub fn prune(client: DockerClient) -> Result(String, String) {
-  docker.send_request(client, Post, "/system/prune", option.None, option.None)
-  |> to_body
+  docker.send_request(client, Post, "/system/prune", None, None)
+  |> request_helpers.expect_body
 }

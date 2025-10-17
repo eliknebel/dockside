@@ -2,22 +2,21 @@ import docker.{type DockerClient}
 import gleam/dict
 import gleam/dynamic
 import gleam/dynamic/decode
-import gleam/http.{type Method, Delete, Get, Post}
+import gleam/http.{Delete, Get, Post}
 import gleam/http/response
 import gleam/json
-import gleam/option.{None}
-import gleam/result
 import gleam/list
-import utils
+import gleam/option.{type Option, None, Some}
 import gleam/uri
-import gleam/int
+import request_helpers
+import utils
 
 pub type Port {
   Port(
-    ip: option.Option(String),
-    private_port: option.Option(Int),
-    public_port: option.Option(Int),
-    type_: option.Option(String),
+    ip: Option(String),
+    private_port: Option(Int),
+    public_port: Option(Int),
+    type_: Option(String),
   )
 }
 
@@ -49,11 +48,11 @@ pub type LogsOptions {
   LogsOptions(
     stdout: Bool,
     stderr: Bool,
-    since: option.Option(Int),
-    until: option.Option(Int),
+    since: Option(Int),
+    until: Option(Int),
     timestamps: Bool,
     follow: Bool,
-    tail: option.Option(String),
+    tail: Option(String),
     details: Bool,
   )
 }
@@ -62,11 +61,11 @@ pub fn default_logs_options() -> LogsOptions {
   LogsOptions(
     stdout: True,
     stderr: True,
-    since: option.None,
-    until: option.None,
+    since: None,
+    until: None,
     timestamps: False,
     follow: False,
-    tail: option.None,
+    tail: None,
     details: False,
   )
 }
@@ -80,11 +79,7 @@ pub fn default_stats_options() -> StatsOptions {
 }
 
 pub type RemoveOptions {
-  RemoveOptions(
-    remove_volumes: Bool,
-    force: Bool,
-    remove_link: Bool,
-  )
+  RemoveOptions(remove_volumes: Bool, force: Bool, remove_link: Bool)
 }
 
 pub fn default_remove_options() -> RemoveOptions {
@@ -105,31 +100,27 @@ pub type Container {
     labels: dict.Dict(String, String),
     host_config: HostConfig,
     mounts: List(Mount),
-    size_rw: option.Option(Int),
-    size_root_fs: option.Option(Int),
-    network_settings: option.Option(dict.Dict(String, dynamic.Dynamic)),
+    size_rw: Option(Int),
+    size_root_fs: Option(Int),
+    network_settings: Option(dict.Dict(String, dynamic.Dynamic)),
   )
 }
 
 fn port_decoder() -> decode.Decoder(Port) {
-  use ip <- decode.optional_field(
-    "IP",
-    option.None,
-    decode.optional(decode.string),
-  )
+  use ip <- decode.optional_field("IP", None, decode.optional(decode.string))
   use private_port <- decode.optional_field(
     "PrivatePort",
-    option.None,
+    None,
     decode.optional(decode.int),
   )
   use public_port <- decode.optional_field(
     "PublicPort",
-    option.None,
+    None,
     decode.optional(decode.int),
   )
   use type_ <- decode.optional_field(
     "Type",
-    option.None,
+    None,
     decode.optional(decode.string),
   )
 
@@ -184,17 +175,17 @@ fn container_decoder() -> decode.Decoder(Container) {
   use mounts <- decode.field("Mounts", decode.list(mount_decoder()))
   use size_rw <- decode.optional_field(
     "SizeRw",
-    option.None,
+    None,
     decode.optional(decode.int),
   )
   use size_root_fs <- decode.optional_field(
     "SizeRootFs",
-    option.None,
+    None,
     decode.optional(decode.int),
   )
   use network_settings <- decode.optional_field(
     "NetworkSettings",
-    option.None,
+    None,
     decode.optional(decode.dict(decode.string, decode.dynamic)),
   )
 
@@ -241,78 +232,8 @@ fn decode_response_list(
   }
 }
 
-fn request(
-  client: DockerClient,
-  method: Method,
-  path: String,
-  query: List(#(String, String)),
-  body: option.Option(String),
-) -> Result(response.Response(String), docker.DockerError) {
-  docker.send_request_with_query(client, method, path, query, body, None)
-}
-
 fn container_path(id: String, suffix: String) -> String {
   "/containers/" <> uri.percent_encode(id) <> suffix
-}
-
-fn to_body(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(String, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(r) { r.body })
-}
-
-fn to_nil(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(Nil, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(_) { Nil })
-}
-
-fn append_optional(
-  query: List(#(String, String)),
-  key: String,
-  value: option.Option(String),
-) -> List(#(String, String)) {
-  case value {
-    option.Some(v) -> list.append(query, [#(key, v)])
-    option.None -> query
-  }
-}
-
-fn bool_to_string(value: Bool) -> String {
-  case value {
-    True -> "true"
-    False -> "false"
-  }
-}
-
-fn append_bool(
-  query: List(#(String, String)),
-  key: String,
-  value: Bool,
-) -> List(#(String, String)) {
-  list.append(query, [#(key, bool_to_string(value))])
-}
-
-fn int_option_to_string(
-  value: option.Option(Int),
-) -> option.Option(String) {
-  case value {
-    option.Some(v) -> option.Some(int.to_string(v))
-    option.None -> option.None
-  }
-}
-
-fn optional_headers(
-  headers: List(#(String, String)),
-) -> option.Option(List(#(String, String))) {
-  case headers {
-    [] -> option.None
-    _ -> option.Some(headers)
-  }
 }
 
 /// # Create container
@@ -322,24 +243,23 @@ fn optional_headers(
 pub fn create(
   client: DockerClient,
   body: String,
-  name: option.Option(String),
-  platform: option.Option(String),
+  name: Option(String),
+  platform: Option(String),
   headers: List(#(String, String)),
 ) -> Result(String, String) {
   let query =
     []
-    |> append_optional("name", name)
-    |> append_optional("platform", platform)
+    |> request_helpers.append_optional("name", name)
+    |> request_helpers.append_optional("platform", platform)
 
-  docker.send_request_with_query(
+  docker.send_request(
     client,
     Post,
-    "/containers/create",
-    query,
-    option.Some(body),
-    optional_headers(headers),
+    request_helpers.path_with_query("/containers/create", query),
+    request_helpers.optional_headers(headers),
+    Some(body),
   )
-  |> to_body
+  |> request_helpers.expect_body
 }
 
 /// # Inspect container
@@ -352,16 +272,19 @@ pub fn inspect(
 ) -> Result(String, String) {
   let query =
     []
-    |> append_optional(
-      "size",
-      case include_size {
-        True -> option.Some("true")
-        False -> option.None
-      },
-    )
+    |> request_helpers.append_optional("size", case include_size {
+      True -> Some("true")
+      False -> None
+    })
 
-  request(client, Get, container_path(id, "/json"), query, option.None)
-  |> to_body
+  docker.send_request(
+    client,
+    Get,
+    request_helpers.path_with_query(container_path(id, "/json"), query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Display running processes in a container
@@ -370,11 +293,17 @@ pub fn inspect(
 pub fn top(
   client: DockerClient,
   id: String,
-  ps_args: option.Option(String),
+  ps_args: Option(String),
 ) -> Result(String, String) {
-  let query = [] |> append_optional("ps_args", ps_args)
-  request(client, Get, container_path(id, "/top"), query, option.None)
-  |> to_body
+  let query = [] |> request_helpers.append_optional("ps_args", ps_args)
+  docker.send_request(
+    client,
+    Get,
+    request_helpers.path_with_query(container_path(id, "/top"), query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Fetch container logs
@@ -398,25 +327,43 @@ pub fn logs(
 
   let query =
     []
-    |> append_bool("stdout", stdout)
-    |> append_bool("stderr", stderr)
-    |> append_optional("since", int_option_to_string(since))
-    |> append_optional("until", int_option_to_string(until_))
-    |> append_bool("timestamps", timestamps)
-    |> append_bool("follow", follow)
-    |> append_optional("tail", tail)
-    |> append_bool("details", details)
+    |> request_helpers.append_bool("stdout", stdout)
+    |> request_helpers.append_bool("stderr", stderr)
+    |> request_helpers.append_optional(
+      "since",
+      request_helpers.int_option_to_string(since),
+    )
+    |> request_helpers.append_optional(
+      "until",
+      request_helpers.int_option_to_string(until_),
+    )
+    |> request_helpers.append_bool("timestamps", timestamps)
+    |> request_helpers.append_bool("follow", follow)
+    |> request_helpers.append_optional("tail", tail)
+    |> request_helpers.append_bool("details", details)
 
-  request(client, Get, container_path(id, "/logs"), query, option.None)
-  |> to_body
+  docker.send_request(
+    client,
+    Get,
+    request_helpers.path_with_query(container_path(id, "/logs"), query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Inspect filesystem changes
 ///
 /// Wraps `GET /containers/{id}/changes`.
 pub fn changes(client: DockerClient, id: String) -> Result(String, String) {
-  request(client, Get, container_path(id, "/changes"), [], option.None)
-  |> to_body
+  docker.send_request(
+    client,
+    Get,
+    request_helpers.path_with_query(container_path(id, "/changes"), []),
+    None,
+    None,
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Retrieve container stats
@@ -427,17 +374,22 @@ pub fn stats(
   id: String,
   options: StatsOptions,
 ) -> Result(String, String) {
-  let StatsOptions(stream: stream, one_shot: one_shot, decode: decode) =
-    options
+  let StatsOptions(stream: stream, one_shot: one_shot, decode: decode) = options
 
   let query =
     []
-    |> append_bool("stream", stream)
-    |> append_bool("one-shot", one_shot)
-    |> append_bool("decode", decode)
+    |> request_helpers.append_bool("stream", stream)
+    |> request_helpers.append_bool("one-shot", one_shot)
+    |> request_helpers.append_bool("decode", decode)
 
-  request(client, Get, container_path(id, "/stats"), query, option.None)
-  |> to_body
+  docker.send_request(
+    client,
+    Get,
+    request_helpers.path_with_query(container_path(id, "/stats"), query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Start container
@@ -446,11 +398,17 @@ pub fn stats(
 pub fn start(
   client: DockerClient,
   id: String,
-  detach_keys: option.Option(String),
+  detach_keys: Option(String),
 ) -> Result(Nil, String) {
-  let query = [] |> append_optional("detachKeys", detach_keys)
-  request(client, Post, container_path(id, "/start"), query, option.None)
-  |> to_nil
+  let query = [] |> request_helpers.append_optional("detachKeys", detach_keys)
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query(container_path(id, "/start"), query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_nil
 }
 
 /// # Stop container
@@ -459,11 +417,23 @@ pub fn start(
 pub fn stop(
   client: DockerClient,
   id: String,
-  timeout_seconds: option.Option(Int),
+  timeout_seconds: Option(Int),
 ) -> Result(Nil, String) {
-  let query = [] |> append_optional("t", int_option_to_string(timeout_seconds))
-  request(client, Post, container_path(id, "/stop"), query, option.None)
-  |> to_nil
+  let query =
+    []
+    |> request_helpers.append_optional(
+      "t",
+      request_helpers.int_option_to_string(timeout_seconds),
+    )
+
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query(container_path(id, "/stop"), query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_nil
 }
 
 /// # Restart container
@@ -472,11 +442,23 @@ pub fn stop(
 pub fn restart(
   client: DockerClient,
   id: String,
-  timeout_seconds: option.Option(Int),
+  timeout_seconds: Option(Int),
 ) -> Result(Nil, String) {
-  let query = [] |> append_optional("t", int_option_to_string(timeout_seconds))
-  request(client, Post, container_path(id, "/restart"), query, option.None)
-  |> to_nil
+  let query =
+    []
+    |> request_helpers.append_optional(
+      "t",
+      request_helpers.int_option_to_string(timeout_seconds),
+    )
+
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query(container_path(id, "/restart"), query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_nil
 }
 
 /// # Update container
@@ -487,14 +469,14 @@ pub fn update(
   id: String,
   body: String,
 ) -> Result(String, String) {
-  request(
+  docker.send_request(
     client,
     Post,
-    container_path(id, "/update"),
-    [],
-    option.Some(body),
+    request_helpers.path_with_query(container_path(id, "/update"), []),
+    None,
+    Some(body),
   )
-  |> to_body
+  |> request_helpers.expect_body
 }
 
 /// # Kill container
@@ -503,11 +485,17 @@ pub fn update(
 pub fn kill(
   client: DockerClient,
   id: String,
-  signal: option.Option(String),
+  signal: Option(String),
 ) -> Result(Nil, String) {
-  let query = [] |> append_optional("signal", signal)
-  request(client, Post, container_path(id, "/kill"), query, option.None)
-  |> to_nil
+  let query = [] |> request_helpers.append_optional("signal", signal)
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query(container_path(id, "/kill"), query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_nil
 }
 
 /// # Resize container TTY
@@ -516,32 +504,56 @@ pub fn kill(
 pub fn resize(
   client: DockerClient,
   id: String,
-  height: option.Option(Int),
-  width: option.Option(Int),
+  height: Option(Int),
+  width: Option(Int),
 ) -> Result(Nil, String) {
   let query =
     []
-    |> append_optional("h", int_option_to_string(height))
-    |> append_optional("w", int_option_to_string(width))
+    |> request_helpers.append_optional(
+      "h",
+      request_helpers.int_option_to_string(height),
+    )
+    |> request_helpers.append_optional(
+      "w",
+      request_helpers.int_option_to_string(width),
+    )
 
-  request(client, Post, container_path(id, "/resize"), query, option.None)
-  |> to_nil
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query(container_path(id, "/resize"), query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_nil
 }
 
 /// # Pause container
 ///
 /// Wraps `POST /containers/{id}/pause`.
 pub fn pause(client: DockerClient, id: String) -> Result(Nil, String) {
-  request(client, Post, container_path(id, "/pause"), [], option.None)
-  |> to_nil
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query(container_path(id, "/pause"), []),
+    None,
+    None,
+  )
+  |> request_helpers.expect_nil
 }
 
 /// # Unpause container
 ///
 /// Wraps `POST /containers/{id}/unpause`.
 pub fn unpause(client: DockerClient, id: String) -> Result(Nil, String) {
-  request(client, Post, container_path(id, "/unpause"), [], option.None)
-  |> to_nil
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query(container_path(id, "/unpause"), []),
+    None,
+    None,
+  )
+  |> request_helpers.expect_nil
 }
 
 /// # Rename container
@@ -553,8 +565,14 @@ pub fn rename(
   new_name: String,
 ) -> Result(Nil, String) {
   let query = [] |> list.append([#("name", new_name)])
-  request(client, Post, container_path(id, "/rename"), query, option.None)
-  |> to_nil
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query(container_path(id, "/rename"), query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_nil
 }
 
 /// # Wait for container
@@ -563,11 +581,17 @@ pub fn rename(
 pub fn wait(
   client: DockerClient,
   id: String,
-  condition: option.Option(String),
+  condition: Option(String),
 ) -> Result(String, String) {
-  let query = [] |> append_optional("condition", condition)
-  request(client, Post, container_path(id, "/wait"), query, option.None)
-  |> to_body
+  let query = [] |> request_helpers.append_optional("condition", condition)
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query(container_path(id, "/wait"), query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Remove container
@@ -586,12 +610,18 @@ pub fn remove(
 
   let query =
     []
-    |> append_bool("v", remove_volumes)
-    |> append_bool("force", force)
-    |> append_bool("link", remove_link)
+    |> request_helpers.append_bool("v", remove_volumes)
+    |> request_helpers.append_bool("force", force)
+    |> request_helpers.append_bool("link", remove_link)
 
-  request(client, Delete, container_path(id, ""), query, option.None)
-  |> to_nil
+  docker.send_request(
+    client,
+    Delete,
+    request_helpers.path_with_query(container_path(id, ""), query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_nil
 }
 
 /// # Prune containers
@@ -600,9 +630,15 @@ pub fn remove(
 /// The `filters` parameter should be a JSON encoded string as defined by the Docker Engine API.
 pub fn prune(
   client: DockerClient,
-  filters: option.Option(String),
+  filters: Option(String),
 ) -> Result(String, String) {
-  let query = [] |> append_optional("filters", filters)
-  request(client, Post, "/containers/prune", query, option.None)
-  |> to_body
+  let query = [] |> request_helpers.append_optional("filters", filters)
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query("/containers/prune", query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_body
 }

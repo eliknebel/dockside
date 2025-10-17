@@ -1,37 +1,8 @@
 import docker.{type DockerClient}
-import gleam/http.{type Method, Get, Post}
-import gleam/http/response
-import gleam/int
-import gleam/option
-import gleam/result
+import gleam/http.{Get, Post}
+import gleam/option.{type Option, None, Some}
 import gleam/uri
-import gleam/list
-
-fn request(
-  client: DockerClient,
-  method: Method,
-  path: String,
-  query: List(#(String, String)),
-  body: option.Option(String),
-) -> Result(response.Response(String), docker.DockerError) {
-  docker.send_request_with_query(client, method, path, query, body, option.None)
-}
-
-fn to_body(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(String, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(r) { r.body })
-}
-
-fn to_nil(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(Nil, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(_) { Nil })
-}
+import request_helpers
 
 fn exec_path(id: String, suffix: String) -> String {
   "/exec/" <> uri.percent_encode(id) <> suffix
@@ -45,15 +16,14 @@ pub fn create(
   container_id: String,
   body: String,
 ) -> Result(String, String) {
-  docker.send_request_with_query(
+  docker.send_request(
     client,
     Post,
     "/containers/" <> uri.percent_encode(container_id) <> "/exec",
-    [],
-    option.Some(body),
-    option.None,
+    None,
+    Some(body),
   )
-  |> to_body
+  |> request_helpers.expect_body
 }
 
 /// # Start exec
@@ -64,16 +34,28 @@ pub fn start(
   id: String,
   body: String,
 ) -> Result(String, String) {
-  request(client, Post, exec_path(id, "/start"), [], option.Some(body))
-  |> to_body
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query(exec_path(id, "/start"), []),
+    None,
+    Some(body),
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Inspect exec
 ///
 /// Wraps `GET /exec/{id}/json`.
 pub fn inspect(client: DockerClient, id: String) -> Result(String, String) {
-  request(client, Get, exec_path(id, "/json"), [], option.None)
-  |> to_body
+  docker.send_request(
+    client,
+    Get,
+    request_helpers.path_with_query(exec_path(id, "/json"), []),
+    None,
+    None,
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Resize exec TTY
@@ -82,34 +64,26 @@ pub fn inspect(client: DockerClient, id: String) -> Result(String, String) {
 pub fn resize(
   client: DockerClient,
   id: String,
-  height: option.Option(Int),
-  width: option.Option(Int),
+  height: Option(Int),
+  width: Option(Int),
 ) -> Result(Nil, String) {
   let query =
     []
-    |> append_optional("h", int_option_to_string(height))
-    |> append_optional("w", int_option_to_string(width))
+    |> request_helpers.append_optional(
+      "h",
+      request_helpers.int_option_to_string(height),
+    )
+    |> request_helpers.append_optional(
+      "w",
+      request_helpers.int_option_to_string(width),
+    )
 
-  request(client, Post, exec_path(id, "/resize"), query, option.None)
-  |> to_nil
-}
-
-fn append_optional(
-  query: List(#(String, String)),
-  key: String,
-  value: option.Option(String),
-) -> List(#(String, String)) {
-  case value {
-    option.Some(v) -> list.append(query, [#(key, v)])
-    option.None -> query
-  }
-}
-
-fn int_option_to_string(
-  value: option.Option(Int),
-) -> option.Option(String) {
-  case value {
-    option.Some(v) -> option.Some(int.to_string(v))
-    option.None -> option.None
-  }
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query(exec_path(id, "/resize"), query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_nil
 }

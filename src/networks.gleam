@@ -1,35 +1,10 @@
 import docker.{type DockerClient}
-import gleam/http.{type Method, Delete, Get, Post}
-import gleam/http/response
-import gleam/option
-import gleam/result
+import gleam/http.{Delete, Get, Post}
+import gleam/option.{
+  type Option, None, Some, map as option_map, unwrap as option_unwrap,
+}
 import gleam/uri
-
-fn request(
-  client: DockerClient,
-  method: Method,
-  path: String,
-  query: List(#(String, String)),
-  body: option.Option(String),
-) -> Result(response.Response(String), docker.DockerError) {
-  docker.send_request_with_query(client, method, path, query, body, option.None)
-}
-
-fn to_body(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(String, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(r) { r.body })
-}
-
-fn to_nil(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(Nil, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(_) { Nil })
-}
+import request_helpers
 
 fn network_path(id: String, suffix: String) -> String {
   "/networks/" <> uri.percent_encode(id) <> suffix
@@ -41,46 +16,57 @@ fn network_path(id: String, suffix: String) -> String {
 /// Provide `filters` as a JSON encoded string if required.
 pub fn list(
   client: DockerClient,
-  filters: option.Option(String),
+  filters: Option(String),
 ) -> Result(String, String) {
-  docker.send_request_with_query(
+  let query =
+    filters
+    |> option_map(fn(f) { [#("filters", f)] })
+    |> option_unwrap(or: [])
+
+  docker.send_request(
     client,
     Get,
-    "/networks",
-    filters
-    |> option.map(fn(f) { [#("filters", f)] })
-    |> option.unwrap(or: []),
-    option.None,
-    option.None,
+    request_helpers.path_with_query("/networks", query),
+    None,
+    None,
   )
-  |> to_body
+  |> request_helpers.expect_body
 }
 
 /// # Inspect network
 ///
 /// Wraps `GET /networks/{id}`.
 pub fn inspect(client: DockerClient, id: String) -> Result(String, String) {
-  request(client, Get, network_path(id, ""), [], option.None)
-  |> to_body
+  docker.send_request(
+    client,
+    Get,
+    request_helpers.path_with_query(network_path(id, ""), []),
+    None,
+    None,
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Create network
 ///
 /// Wraps `POST /networks/create`.
-pub fn create(
-  client: DockerClient,
-  body: String,
-) -> Result(String, String) {
-  request(client, Post, "/networks/create", [], option.Some(body))
-  |> to_body
+pub fn create(client: DockerClient, body: String) -> Result(String, String) {
+  docker.send_request(client, Post, "/networks/create", None, Some(body))
+  |> request_helpers.expect_body
 }
 
 /// # Remove network
 ///
 /// Wraps `DELETE /networks/{id}`.
 pub fn remove(client: DockerClient, id: String) -> Result(Nil, String) {
-  request(client, Delete, network_path(id, ""), [], option.None)
-  |> to_nil
+  docker.send_request(
+    client,
+    Delete,
+    request_helpers.path_with_query(network_path(id, ""), []),
+    None,
+    None,
+  )
+  |> request_helpers.expect_nil
 }
 
 /// # Connect container to network
@@ -91,14 +77,14 @@ pub fn connect(
   id: String,
   body: String,
 ) -> Result(Nil, String) {
-  request(
+  docker.send_request(
     client,
     Post,
-    network_path(id, "/connect"),
-    [],
-    option.Some(body),
+    request_helpers.path_with_query(network_path(id, "/connect"), []),
+    None,
+    Some(body),
   )
-  |> to_nil
+  |> request_helpers.expect_nil
 }
 
 /// # Disconnect container from network
@@ -109,14 +95,14 @@ pub fn disconnect(
   id: String,
   body: String,
 ) -> Result(Nil, String) {
-  request(
+  docker.send_request(
     client,
     Post,
-    network_path(id, "/disconnect"),
-    [],
-    option.Some(body),
+    request_helpers.path_with_query(network_path(id, "/disconnect"), []),
+    None,
+    Some(body),
   )
-  |> to_nil
+  |> request_helpers.expect_nil
 }
 
 /// # Prune networks
@@ -124,17 +110,19 @@ pub fn disconnect(
 /// Wraps `POST /networks/prune`.
 pub fn prune(
   client: DockerClient,
-  filters: option.Option(String),
+  filters: Option(String),
 ) -> Result(String, String) {
-  docker.send_request_with_query(
+  let query =
+    filters
+    |> option_map(fn(f) { [#("filters", f)] })
+    |> option_unwrap(or: [])
+
+  docker.send_request(
     client,
     Post,
-    "/networks/prune",
-    filters
-    |> option.map(fn(f) { [#("filters", f)] })
-    |> option.unwrap(or: []),
-    option.None,
-    option.None,
+    request_helpers.path_with_query("/networks/prune", query),
+    None,
+    None,
   )
-  |> to_body
+  |> request_helpers.expect_body
 }

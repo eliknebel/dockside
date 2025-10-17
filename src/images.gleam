@@ -1,41 +1,35 @@
 import docker.{type DockerClient}
 import gleam/dict
 import gleam/dynamic/decode
-import gleam/http.{type Method, Delete, Get, Post}
-import gleam/http/response
+import gleam/http.{Delete, Get, Post}
 import gleam/json
-import gleam/option
-import gleam/result
 import gleam/list
+import gleam/option.{type Option, None, Some, unwrap as option_unwrap}
 import gleam/uri
+import request_helpers
 import utils
-import gleam/int
 
 pub type Image {
   Image(
     id: String,
     parent_id: String,
     repo_tags: List(String),
-    repo_digests: option.Option(List(String)),
+    repo_digests: Option(List(String)),
     created: Int,
     size: Int,
     shared_size: Int,
     virtual_size: Int,
-    labels: option.Option(dict.Dict(String, String)),
+    labels: Option(dict.Dict(String, String)),
     containers: Int,
   )
 }
 
 pub type ListOptions {
-  ListOptions(
-    all: Bool,
-    digests: Bool,
-    filters: option.Option(String),
-  )
+  ListOptions(all: Bool, digests: Bool, filters: Option(String))
 }
 
 pub fn default_list_options() -> ListOptions {
-  ListOptions(all: False, digests: False, filters: option.None)
+  ListOptions(all: False, digests: False, filters: None)
 }
 
 pub type RemoveOptions {
@@ -51,13 +45,13 @@ fn image_decoder() -> decode.Decoder(Image) {
   use parent_id <- decode.field("ParentId", decode.string)
   use repo_tags_opt <- decode.optional_field(
     "RepoTags",
-    option.None,
+    None,
     decode.optional(decode.list(decode.string)),
   )
-  let repo_tags = option.unwrap(repo_tags_opt, or: [])
+  let repo_tags = option_unwrap(repo_tags_opt, or: [])
   use repo_digests <- decode.optional_field(
     "RepoDigests",
-    option.None,
+    None,
     decode.optional(decode.list(decode.string)),
   )
   use created <- decode.field("Created", decode.int)
@@ -66,7 +60,7 @@ fn image_decoder() -> decode.Decoder(Image) {
   use virtual_size <- decode.field("VirtualSize", decode.int)
   use labels <- decode.optional_field(
     "Labels",
-    option.None,
+    None,
     decode.optional(decode.dict(decode.string, decode.string)),
   )
   use containers <- decode.field("Containers", decode.int)
@@ -96,30 +90,28 @@ fn decode_image_list(body: String) {
 ///
 /// Wraps `GET /images/{name}/json`.
 pub fn inspect(client: DockerClient, name: String) -> Result(String, String) {
-  request(
+  docker.send_request(
     client,
     Get,
-    image_path(name, "/json"),
-    [],
-    option.None,
-    option.None,
+    request_helpers.path_with_query(image_path(name, "/json"), []),
+    None,
+    None,
   )
-  |> to_body
+  |> request_helpers.expect_body
 }
 
 /// # Get image history
 ///
 /// Wraps `GET /images/{name}/history`.
 pub fn history(client: DockerClient, name: String) -> Result(String, String) {
-  request(
+  docker.send_request(
     client,
     Get,
-    image_path(name, "/history"),
-    [],
-    option.None,
-    option.None,
+    request_helpers.path_with_query(image_path(name, "/history"), []),
+    None,
+    None,
   )
-  |> to_body
+  |> request_helpers.expect_body
 }
 
 /// # Remove image
@@ -134,11 +126,17 @@ pub fn remove(
 
   let query =
     []
-    |> append_bool("force", force)
-    |> append_bool("noprune", noprune)
+    |> request_helpers.append_bool("force", force)
+    |> request_helpers.append_bool("noprune", noprune)
 
-  request(client, Delete, image_path(name, ""), query, option.None, option.None)
-  |> to_nil
+  docker.send_request(
+    client,
+    Delete,
+    request_helpers.path_with_query(image_path(name, ""), query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_nil
 }
 
 /// # Prune images
@@ -147,11 +145,17 @@ pub fn remove(
 /// The `filters` argument expects a JSON encoded filter string.
 pub fn prune(
   client: DockerClient,
-  filters: option.Option(String),
+  filters: Option(String),
 ) -> Result(String, String) {
-  let query = [] |> append_optional("filters", filters)
-  request(client, Post, "/images/prune", query, option.None, option.None)
-  |> to_body
+  let query = [] |> request_helpers.append_optional("filters", filters)
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query("/images/prune", query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Search images
@@ -161,17 +165,26 @@ pub fn prune(
 pub fn search(
   client: DockerClient,
   term: String,
-  limit: option.Option(Int),
-  filters: option.Option(String),
+  limit: Option(Int),
+  filters: Option(String),
 ) -> Result(String, String) {
   let query =
     []
     |> list.append([#("term", term)])
-    |> append_optional("limit", int_option_to_string(limit))
-    |> append_optional("filters", filters)
+    |> request_helpers.append_optional(
+      "limit",
+      request_helpers.int_option_to_string(limit),
+    )
+    |> request_helpers.append_optional("filters", filters)
 
-  request(client, Get, "/images/search", query, option.None, option.None)
-  |> to_body
+  docker.send_request(
+    client,
+    Get,
+    request_helpers.path_with_query("/images/search", query),
+    None,
+    None,
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Create (pull) image
@@ -179,29 +192,34 @@ pub fn search(
 /// Wraps `POST /images/create`. Provide at least `from_image` or `from_src`.
 pub fn create(
   client: DockerClient,
-  from_image: option.Option(String),
-  from_src: option.Option(String),
-  repo: option.Option(String),
-  tag: option.Option(String),
-  platform: option.Option(String),
-  registry_auth: option.Option(String),
+  from_image: Option(String),
+  from_src: Option(String),
+  repo: Option(String),
+  tag: Option(String),
+  platform: Option(String),
+  registry_auth: Option(String),
 ) -> Result(String, String) {
   let query =
     []
-    |> append_optional("fromImage", from_image)
-    |> append_optional("fromSrc", from_src)
-    |> append_optional("repo", repo)
-    |> append_optional("tag", tag)
-    |> append_optional("platform", platform)
+    |> request_helpers.append_optional("fromImage", from_image)
+    |> request_helpers.append_optional("fromSrc", from_src)
+    |> request_helpers.append_optional("repo", repo)
+    |> request_helpers.append_optional("tag", tag)
+    |> request_helpers.append_optional("platform", platform)
 
-  let headers =
-    case registry_auth {
-      option.Some(auth) -> option.Some([#("X-Registry-Auth", auth)])
-      option.None -> option.None
-    }
+  let headers = case registry_auth {
+    Some(auth) -> Some([#("X-Registry-Auth", auth)])
+    None -> None
+  }
 
-  request(client, Post, "/images/create", query, option.None, headers)
-  |> to_body
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query("/images/create", query),
+    headers,
+    None,
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Push image
@@ -210,26 +228,24 @@ pub fn create(
 pub fn push(
   client: DockerClient,
   name: String,
-  tag: option.Option(String),
-  registry_auth: option.Option(String),
+  tag: Option(String),
+  registry_auth: Option(String),
 ) -> Result(String, String) {
-  let query = [] |> append_optional("tag", tag)
+  let query = [] |> request_helpers.append_optional("tag", tag)
 
-  let headers =
-    case registry_auth {
-      option.Some(auth) -> option.Some([#("X-Registry-Auth", auth)])
-      option.None -> option.None
-    }
+  let headers = case registry_auth {
+    Some(auth) -> Some([#("X-Registry-Auth", auth)])
+    None -> None
+  }
 
-  request(
+  docker.send_request(
     client,
     Post,
-    image_path(name, "/push"),
-    query,
-    option.None,
+    request_helpers.path_with_query(image_path(name, "/push"), query),
     headers,
+    None,
   )
-  |> to_body
+  |> request_helpers.expect_body
 }
 
 /// # Tag image
@@ -239,89 +255,25 @@ pub fn tag(
   client: DockerClient,
   name: String,
   repo: String,
-  tag_value: option.Option(String),
+  tag_value: Option(String),
 ) -> Result(Nil, String) {
   let query =
     []
     |> list.append([#("repo", repo)])
-    |> append_optional("tag", tag_value)
+    |> request_helpers.append_optional("tag", tag_value)
 
-  request(
+  docker.send_request(
     client,
     Post,
-    image_path(name, "/tag"),
-    query,
-    option.None,
-    option.None,
+    request_helpers.path_with_query(image_path(name, "/tag"), query),
+    None,
+    None,
   )
-  |> to_nil
-}
-
-
-fn request(
-  client: DockerClient,
-  method: Method,
-  path: String,
-  query: List(#(String, String)),
-  body: option.Option(String),
-  headers: option.Option(List(#(String, String))),
-) -> Result(response.Response(String), docker.DockerError) {
-  docker.send_request_with_query(client, method, path, query, body, headers)
-}
-
-fn to_body(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(String, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(r) { r.body })
-}
-
-fn to_nil(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(Nil, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(_) { Nil })
+  |> request_helpers.expect_nil
 }
 
 fn image_path(name: String, suffix: String) -> String {
   "/images/" <> uri.percent_encode(name) <> suffix
-}
-
-fn append_optional(
-  query: List(#(String, String)),
-  key: String,
-  value: option.Option(String),
-) -> List(#(String, String)) {
-  case value {
-    option.Some(v) -> list.append(query, [#(key, v)])
-    option.None -> query
-  }
-}
-
-fn append_bool(
-  query: List(#(String, String)),
-  key: String,
-  value: Bool,
-) -> List(#(String, String)) {
-  list.append(query, [#(key, bool_to_string(value))])
-}
-
-fn bool_to_string(value: Bool) -> String {
-  case value {
-    True -> "true"
-    False -> "false"
-  }
-}
-
-fn int_option_to_string(
-  value: option.Option(Int),
-) -> option.Option(String) {
-  case value {
-    option.Some(v) -> option.Some(int.to_string(v))
-    option.None -> option.None
-  }
 }
 
 /// # List images
@@ -331,20 +283,23 @@ pub fn list(client: DockerClient) {
   list_with_options(client, default_list_options())
 }
 
-pub fn list_with_options(
-  client: DockerClient,
-  options: ListOptions,
-) {
+pub fn list_with_options(client: DockerClient, options: ListOptions) {
   let ListOptions(all: all, digests: digests, filters: filters) = options
 
   let query =
     []
-    |> append_bool("all", all)
-    |> append_bool("digests", digests)
-    |> append_optional("filters", filters)
+    |> request_helpers.append_bool("all", all)
+    |> request_helpers.append_bool("digests", digests)
+    |> request_helpers.append_optional("filters", filters)
 
-  request(client, Get, "/images/json", query, option.None, option.None)
-  |> fn(res: Result(response.Response(String), docker.DockerError)) {
+  docker.send_request(
+    client,
+    Get,
+    request_helpers.path_with_query("/images/json", query),
+    None,
+    None,
+  )
+  |> fn(res) {
     case res {
       Ok(r) -> decode_image_list(r.body)
       Error(error) -> Error(docker.humanize_error(error))

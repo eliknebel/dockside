@@ -1,46 +1,14 @@
 import docker.{type DockerClient}
-import gleam/http.{type Method, Delete, Get, Post}
-import gleam/http/response
+import gleam/http.{Delete, Get, Post}
 import gleam/int
-import gleam/option
-import gleam/result
+import gleam/option.{
+  type Option, None, Some, map as option_map, unwrap as option_unwrap,
+}
 import gleam/uri
-
-fn request(
-  client: DockerClient,
-  method: Method,
-  path: String,
-  query: List(#(String, String)),
-  body: option.Option(String),
-) -> Result(response.Response(String), docker.DockerError) {
-  docker.send_request_with_query(client, method, path, query, body, option.None)
-}
-
-fn to_body(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(String, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(r) { r.body })
-}
-
-fn to_nil(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(Nil, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(_) { Nil })
-}
+import request_helpers
 
 fn node_path(id: String, suffix: String) -> String {
   "/nodes/" <> uri.percent_encode(id) <> suffix
-}
-
-fn bool_to_string(value: Bool) -> String {
-  case value {
-    True -> "true"
-    False -> "false"
-  }
 }
 
 /// # List nodes
@@ -48,27 +16,35 @@ fn bool_to_string(value: Bool) -> String {
 /// Wraps `GET /nodes`.
 pub fn list(
   client: DockerClient,
-  filters: option.Option(String),
+  filters: Option(String),
 ) -> Result(String, String) {
-  docker.send_request_with_query(
+  let query =
+    filters
+    |> option_map(fn(f) { [#("filters", f)] })
+    |> option_unwrap(or: [])
+
+  docker.send_request(
     client,
     Get,
-    "/nodes",
-    filters
-    |> option.map(fn(f) { [#("filters", f)] })
-    |> option.unwrap(or: []),
-    option.None,
-    option.None,
+    request_helpers.path_with_query("/nodes", query),
+    None,
+    None,
   )
-  |> to_body
+  |> request_helpers.expect_body
 }
 
 /// # Inspect node
 ///
 /// Wraps `GET /nodes/{id}`.
 pub fn inspect(client: DockerClient, id: String) -> Result(String, String) {
-  request(client, Get, node_path(id, ""), [], option.None)
-  |> to_body
+  docker.send_request(
+    client,
+    Get,
+    request_helpers.path_with_query(node_path(id, ""), []),
+    None,
+    None,
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Update node
@@ -81,8 +57,14 @@ pub fn update(
   body: String,
 ) -> Result(Nil, String) {
   let query = [#("version", int.to_string(version))]
-  request(client, Post, node_path(id, "/update"), query, option.Some(body))
-  |> to_nil
+  docker.send_request(
+    client,
+    Post,
+    request_helpers.path_with_query(node_path(id, "/update"), query),
+    None,
+    Some(body),
+  )
+  |> request_helpers.expect_nil
 }
 
 /// # Remove node
@@ -93,12 +75,14 @@ pub fn remove(
   id: String,
   force: Bool,
 ) -> Result(Nil, String) {
-  request(
+  docker.send_request(
     client,
     Delete,
-    node_path(id, ""),
-    [#("force", bool_to_string(force))],
-    option.None,
+    request_helpers.path_with_query(node_path(id, ""), [
+      #("force", request_helpers.bool_to_string(force)),
+    ]),
+    None,
+    None,
   )
-  |> to_nil
+  |> request_helpers.expect_nil
 }

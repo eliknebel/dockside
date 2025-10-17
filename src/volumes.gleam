@@ -1,45 +1,13 @@
 import docker.{type DockerClient}
-import gleam/http.{type Method, Delete, Get, Post}
-import gleam/http/response
-import gleam/option
-import gleam/result
+import gleam/http.{Delete, Get, Post}
+import gleam/option.{
+  type Option, None, Some, map as option_map, unwrap as option_unwrap,
+}
 import gleam/uri
-
-fn request(
-  client: DockerClient,
-  method: Method,
-  path: String,
-  query: List(#(String, String)),
-  body: option.Option(String),
-) -> Result(response.Response(String), docker.DockerError) {
-  docker.send_request_with_query(client, method, path, query, body, option.None)
-}
-
-fn to_body(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(String, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(r) { r.body })
-}
-
-fn to_nil(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(Nil, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(_) { Nil })
-}
+import request_helpers
 
 fn volume_path(name: String, suffix: String) -> String {
   "/volumes/" <> uri.percent_encode(name) <> suffix
-}
-
-fn bool_to_string(value: Bool) -> String {
-  case value {
-    True -> "true"
-    False -> "false"
-  }
 }
 
 /// # List volumes
@@ -47,38 +15,43 @@ fn bool_to_string(value: Bool) -> String {
 /// Wraps `GET /volumes`.
 pub fn list(
   client: DockerClient,
-  filters: option.Option(String),
+  filters: Option(String),
 ) -> Result(String, String) {
-  docker.send_request_with_query(
+  let query =
+    filters
+    |> option_map(fn(f) { [#("filters", f)] })
+    |> option_unwrap(or: [])
+
+  docker.send_request(
     client,
     Get,
-    "/volumes",
-    filters
-    |> option.map(fn(f) { [#("filters", f)] })
-    |> option.unwrap(or: []),
-    option.None,
-    option.None,
+    request_helpers.path_with_query("/volumes", query),
+    None,
+    None,
   )
-  |> to_body
+  |> request_helpers.expect_body
 }
 
 /// # Create volume
 ///
 /// Wraps `POST /volumes/create`.
-pub fn create(
-  client: DockerClient,
-  body: String,
-) -> Result(String, String) {
-  request(client, Post, "/volumes/create", [], option.Some(body))
-  |> to_body
+pub fn create(client: DockerClient, body: String) -> Result(String, String) {
+  docker.send_request(client, Post, "/volumes/create", None, Some(body))
+  |> request_helpers.expect_body
 }
 
 /// # Inspect volume
 ///
 /// Wraps `GET /volumes/{name}`.
 pub fn inspect(client: DockerClient, name: String) -> Result(String, String) {
-  request(client, Get, volume_path(name, ""), [], option.None)
-  |> to_body
+  docker.send_request(
+    client,
+    Get,
+    request_helpers.path_with_query(volume_path(name, ""), []),
+    None,
+    None,
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Remove volume
@@ -89,14 +62,16 @@ pub fn remove(
   name: String,
   force: Bool,
 ) -> Result(Nil, String) {
-  request(
+  docker.send_request(
     client,
     Delete,
-    volume_path(name, ""),
-    [#("force", bool_to_string(force))],
-    option.None,
+    request_helpers.path_with_query(volume_path(name, ""), [
+      #("force", request_helpers.bool_to_string(force)),
+    ]),
+    None,
+    None,
   )
-  |> to_nil
+  |> request_helpers.expect_nil
 }
 
 /// # Prune volumes
@@ -104,17 +79,19 @@ pub fn remove(
 /// Wraps `POST /volumes/prune`.
 pub fn prune(
   client: DockerClient,
-  filters: option.Option(String),
+  filters: Option(String),
 ) -> Result(String, String) {
-  docker.send_request_with_query(
+  let query =
+    filters
+    |> option_map(fn(f) { [#("filters", f)] })
+    |> option_unwrap(or: [])
+
+  docker.send_request(
     client,
     Post,
-    "/volumes/prune",
-    filters
-    |> option.map(fn(f) { [#("filters", f)] })
-    |> option.unwrap(or: []),
-    option.None,
-    option.None,
+    request_helpers.path_with_query("/volumes/prune", query),
+    None,
+    None,
   )
-  |> to_body
+  |> request_helpers.expect_body
 }

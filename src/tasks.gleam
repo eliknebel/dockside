@@ -1,49 +1,43 @@
 import docker.{type DockerClient}
 import gleam/http.{Get}
-import gleam/http/response
-import gleam/option
-import gleam/result
-import gleam/uri
-
-fn to_body(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(String, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(r) { r.body })
+import gleam/option.{
+  type Option, None, map as option_map, unwrap as option_unwrap,
 }
+import gleam/uri
+import request_helpers
 
 /// # List tasks
 ///
 /// Wraps `GET /tasks`.
 pub fn list(
   client: DockerClient,
-  filters: option.Option(String),
+  filters: Option(String),
 ) -> Result(String, String) {
-  docker.send_request_with_query(
+  let query =
+    filters
+    |> option_map(fn(f) { [#("filters", f)] })
+    |> option_unwrap(or: [])
+
+  docker.send_request(
     client,
     Get,
-    "/tasks",
-    filters
-    |> option.map(fn(f) { [#("filters", f)] })
-    |> option.unwrap(or: []),
-    option.None,
-    option.None,
+    request_helpers.path_with_query("/tasks", query),
+    None,
+    None,
   )
-  |> to_body
+  |> request_helpers.expect_body
 }
 
 /// # Inspect task
 ///
 /// Wraps `GET /tasks/{id}`.
 pub fn inspect(client: DockerClient, id: String) -> Result(String, String) {
-  docker.send_request_with_query(
+  docker.send_request(
     client,
     Get,
     "/tasks/" <> uri.percent_encode(id),
-    [],
-    option.None,
-    option.None,
+    None,
+    None,
   )
-  |> to_body
+  |> request_helpers.expect_body
 }

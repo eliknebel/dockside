@@ -1,36 +1,11 @@
 import docker.{type DockerClient}
-import gleam/http.{type Method, Delete, Get, Post}
-import gleam/http/response
+import gleam/http.{Delete, Get, Post}
 import gleam/int
-import gleam/option
-import gleam/result
+import gleam/option.{
+  type Option, None, Some, map as option_map, unwrap as option_unwrap,
+}
 import gleam/uri
-
-fn request(
-  client: DockerClient,
-  method: Method,
-  path: String,
-  query: List(#(String, String)),
-  body: option.Option(String),
-) -> Result(response.Response(String), docker.DockerError) {
-  docker.send_request_with_query(client, method, path, query, body, option.None)
-}
-
-fn to_body(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(String, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(r) { r.body })
-}
-
-fn to_nil(
-  res: Result(response.Response(String), docker.DockerError),
-) -> Result(Nil, String) {
-  res
-  |> docker.map_error
-  |> result.map(fn(_) { Nil })
-}
+import request_helpers
 
 fn config_path(id: String, suffix: String) -> String {
   "/configs/" <> uri.percent_encode(id) <> suffix
@@ -41,38 +16,43 @@ fn config_path(id: String, suffix: String) -> String {
 /// Wraps `GET /configs`.
 pub fn list(
   client: DockerClient,
-  filters: option.Option(String),
+  filters: Option(String),
 ) -> Result(String, String) {
-  docker.send_request_with_query(
+  let query =
+    filters
+    |> option_map(fn(f) { [#("filters", f)] })
+    |> option_unwrap(or: [])
+
+  docker.send_request(
     client,
     Get,
-    "/configs",
-    filters
-    |> option.map(fn(f) { [#("filters", f)] })
-    |> option.unwrap(or: []),
-    option.None,
-    option.None,
+    request_helpers.path_with_query("/configs", query),
+    None,
+    None,
   )
-  |> to_body
+  |> request_helpers.expect_body
 }
 
 /// # Create config
 ///
 /// Wraps `POST /configs/create`.
-pub fn create(
-  client: DockerClient,
-  body: String,
-) -> Result(String, String) {
-  request(client, Post, "/configs/create", [], option.Some(body))
-  |> to_body
+pub fn create(client: DockerClient, body: String) -> Result(String, String) {
+  docker.send_request(client, Post, "/configs/create", None, Some(body))
+  |> request_helpers.expect_body
 }
 
 /// # Inspect config
 ///
 /// Wraps `GET /configs/{id}`.
 pub fn inspect(client: DockerClient, id: String) -> Result(String, String) {
-  request(client, Get, config_path(id, ""), [], option.None)
-  |> to_body
+  docker.send_request(
+    client,
+    Get,
+    request_helpers.path_with_query(config_path(id, ""), []),
+    None,
+    None,
+  )
+  |> request_helpers.expect_body
 }
 
 /// # Update config
@@ -84,20 +64,28 @@ pub fn update(
   version: Int,
   body: String,
 ) -> Result(Nil, String) {
-  request(
+  docker.send_request(
     client,
     Post,
-    config_path(id, "/update"),
-    [#("version", int.to_string(version))],
-    option.Some(body),
+    request_helpers.path_with_query(config_path(id, "/update"), [
+      #("version", int.to_string(version)),
+    ]),
+    None,
+    Some(body),
   )
-  |> to_nil
+  |> request_helpers.expect_nil
 }
 
 /// # Remove config
 ///
 /// Wraps `DELETE /configs/{id}`.
 pub fn remove(client: DockerClient, id: String) -> Result(Nil, String) {
-  request(client, Delete, config_path(id, ""), [], option.None)
-  |> to_nil
+  docker.send_request(
+    client,
+    Delete,
+    request_helpers.path_with_query(config_path(id, ""), []),
+    None,
+    None,
+  )
+  |> request_helpers.expect_nil
 }
