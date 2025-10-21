@@ -1,6 +1,5 @@
 import dockside/docker.{type DockerClient}
 import dockside/request_helpers
-import dockside/utils
 import gleam/dict
 import gleam/dynamic
 import gleam/dynamic/decode
@@ -34,13 +33,13 @@ pub type NetworkSettings {
 
 pub type Mount {
   Mount(
-    name: String,
-    source: String,
-    destination: String,
-    driver: String,
-    mode: String,
+    name: Option(String),
+    source: Option(String),
+    destination: Option(String),
+    driver: Option(String),
+    mode: Option(String),
     rw: Bool,
-    propagation: String,
+    propagation: Option(String),
   )
 }
 
@@ -138,13 +137,37 @@ fn host_config_decoder() -> decode.Decoder(HostConfig) {
 }
 
 fn mount_decoder() -> decode.Decoder(Mount) {
-  use name <- decode.field("Name", decode.string)
-  use source <- decode.field("Source", decode.string)
-  use destination <- decode.field("Destination", decode.string)
-  use driver <- decode.field("Driver", decode.string)
-  use mode <- decode.field("Mode", decode.string)
-  use rw <- decode.field("RW", decode.bool)
-  use propagation <- decode.field("Propagation", decode.string)
+  use name <- decode.optional_field(
+    "Name",
+    None,
+    decode.optional(decode.string),
+  )
+  use source <- decode.optional_field(
+    "Source",
+    None,
+    decode.optional(decode.string),
+  )
+  use destination <- decode.optional_field(
+    "Destination",
+    None,
+    decode.optional(decode.string),
+  )
+  use driver <- decode.optional_field(
+    "Driver",
+    None,
+    decode.optional(decode.string),
+  )
+  use mode <- decode.optional_field(
+    "Mode",
+    None,
+    decode.optional(decode.string),
+  )
+  use rw <- decode.optional_field("RW", False, decode.bool)
+  use propagation <- decode.optional_field(
+    "Propagation",
+    None,
+    decode.optional(decode.string),
+  )
 
   decode.success(Mount(
     name: name,
@@ -167,12 +190,17 @@ fn container_decoder() -> decode.Decoder(Container) {
   use state <- decode.field("State", decode.string)
   use status <- decode.field("Status", decode.string)
   use ports <- decode.field("Ports", decode.list(port_decoder()))
-  use labels <- decode.field(
+  use labels <- decode.optional_field(
     "Labels",
+    dict.new(),
     decode.dict(decode.string, decode.string),
   )
   use host_config <- decode.field("HostConfig", host_config_decoder())
-  use mounts <- decode.field("Mounts", decode.list(mount_decoder()))
+  use mounts <- decode.optional_field(
+    "Mounts",
+    [],
+    decode.list(mount_decoder()),
+  )
   use size_rw <- decode.optional_field(
     "SizeRw",
     None,
@@ -208,28 +236,52 @@ fn container_decoder() -> decode.Decoder(Container) {
   ))
 }
 
-fn decode_container_list(body: String) {
+fn decode_container_list(
+  body: String,
+) -> Result(List(Container), docker.DockerError) {
   case json.parse(from: body, using: decode.list(container_decoder())) {
     Ok(r) -> Ok(r)
-    Error(e) -> Error(utils.prettify_json_decode_error(e))
+    Error(e) -> Error(docker.DecodeError(e))
   }
-}
-
-/// # List containers
-///
-/// Returns a list of containers.
-pub fn list(client: DockerClient) {
-  docker.send_request(client, Get, "/containers/json", None, None)
-  |> decode_response_list()
 }
 
 fn decode_response_list(
   res: Result(response.Response(String), docker.DockerError),
-) {
+) -> Result(List(Container), docker.DockerError) {
   case res {
     Ok(r) -> decode_container_list(r.body)
-    Error(error) -> Error(docker.humanize_error(error))
+    Error(error) -> Error(error)
   }
+}
+
+fn list_with_query(
+  client: DockerClient,
+  query: List(#(String, String)),
+) -> Result(List(Container), docker.DockerError) {
+  docker.send_request(
+    client,
+    Get,
+    request_helpers.path_with_query("/containers/json", query),
+    None,
+    None,
+  )
+  |> decode_response_list
+}
+
+/// # List containers
+///
+/// Returns a list of running containers by default.
+pub fn list(client: DockerClient) -> Result(List(Container), docker.DockerError) {
+  list_with_query(client, [])
+}
+
+/// # List all containers
+///
+/// Returns a list of containers, including those that are stopped.
+pub fn list_all(
+  client: DockerClient,
+) -> Result(List(Container), docker.DockerError) {
+  list_with_query(client, request_helpers.append_bool([], "all", True))
 }
 
 fn container_path(id: String, suffix: String) -> String {

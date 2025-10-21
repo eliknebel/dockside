@@ -3,7 +3,7 @@ import dockside/docker.{DockerMock}
 import gleam/dict
 import gleam/http.{Get, Post}
 import gleam/http/response
-import gleam/option
+import gleam/option.{Some}
 import gleeunit
 import gleeunit/should
 
@@ -72,13 +72,15 @@ pub fn list_test() {
         host_config: containers.HostConfig("default"),
         mounts: [
           containers.Mount(
-            "c32ea1888b89027230e898fd5d23b0cfb1d812c7fe859429e51c33f1ba56db07",
-            "",
-            "/var/lib/postgresql/data",
-            "local",
-            "",
+            Some(
+              "c32ea1888b89027230e898fd5d23b0cfb1d812c7fe859429e51c33f1ba56db07",
+            ),
+            Some(""),
+            Some("/var/lib/postgresql/data"),
+            Some("local"),
+            Some(""),
             True,
-            "",
+            Some(""),
           ),
         ],
         size_rw: option.None,
