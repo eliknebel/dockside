@@ -21,6 +21,8 @@ Dockside targets the Docker Engine API `v1.51`, exposing high-level helpers for 
 - `images`: list (with options), inspect/history/search/create/push/pull/tag/remove/prune.
 - `networks`, `volumes`, `exec`, `system`, `swarm`, `services`, `tasks`, `nodes`, `secrets`, `configs`, `plugins`, `distribution`, `auth`.
 
+If you need to talk to an older Docker Engine, set the `DOCKER_API_VERSION` environment variable (for example `1.44` or `v1.44`) and Dockside will automatically use that version. Blank or `auto` values fall back to the default `v1.51` target.
+
 Each module wraps the documented REST endpoint (see `/docs/plan.md`) and returns either decoded data or raw JSON/text so callers can compose their own workflows. All functions accept a `docker.DockerClient`, which can target a remote host or the local Unix socket.
 
 ## Installation

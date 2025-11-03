@@ -1,3 +1,4 @@
+import envoy
 import gleam/bit_array
 import gleam/bytes_tree.{type BytesTree}
 import gleam/http.{type Method}
@@ -13,7 +14,34 @@ import gleam/uri
 import gleam/hackney.{InvalidUtf8Response}
 import gleam/json
 
-pub const api_version = "v1.51"
+pub const default_api_version = "v1.51"
+
+fn runtime_api_version() -> String {
+  case envoy.get("DOCKER_API_VERSION") {
+    Ok(version) -> normalise_api_version(version)
+    Error(Nil) -> default_api_version
+  }
+}
+
+pub fn normalise_api_version(version: String) -> String {
+  let trimmed = string.trim(version)
+
+  case trimmed {
+    "" -> default_api_version
+    _ -> {
+      let lowered = string.lowercase(trimmed)
+
+      case lowered {
+        "auto" -> default_api_version
+        _ ->
+          case string.starts_with(trimmed, "v") {
+            True -> trimmed
+            False -> "v" <> trimmed
+          }
+      }
+    }
+  }
+}
 
 pub const linux_default_socket = "/var/run/docker.sock"
 
@@ -51,11 +79,13 @@ pub fn send_request(
   headers: Option(List(#(String, String))),
   body: Option(String),
 ) -> Result(Response(String), DockerError) {
+  let version = runtime_api_version()
+
   case client {
     DockerHttp(host, port) -> {
       request.new()
       |> request.set_method(method)
-      |> request.set_path(string.concat(["/", api_version, path]))
+      |> request.set_path(string.concat(["/", version, path]))
       |> request.set_host(host)
       |> request.set_header("Content-Type", "application/json")
       |> maybe_apply_headers(headers)
@@ -69,7 +99,7 @@ pub fn send_request(
     DockerSocket(socket_path) -> {
       request.new()
       |> request.set_method(method)
-      |> request.set_path(string.concat(["/", api_version, path]))
+      |> request.set_path(string.concat(["/", version, path]))
       |> request.set_header("Content-Type", "application/json")
       |> maybe_apply_headers(headers)
       |> maybe_set_body(body)
