@@ -10,8 +10,6 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
-    env:
-      "ImageOS": "ubuntu20"
     steps:
       - uses: actions/checkout@v4
 
