@@ -1,3 +1,4 @@
+import dockside/k8s/transport
 import gleam/http.{type Method, type Scheme, scheme_from_string}
 import gleam/http/request
 import gleam/http/response.{type Response}
@@ -12,6 +13,8 @@ import gleam/hackney
 import gleam/json
 
 pub type K8sClient {
+  /// Opt-in wrapper preserves the existing HTTP and mock constructors.
+  K8sConfigured(client: K8sClient, options: transport.Options)
   K8sHttp(
     scheme: Scheme,
     host: String,
@@ -29,6 +32,7 @@ pub type K8sClient {
 }
 
 pub type K8sError {
+  Transport(transport.Error)
   InvalidUrl(String)
   Http(hackney.Error)
   UnexpectedStatus(Int, String)
@@ -59,6 +63,17 @@ pub fn from_url(base_url: String) -> Result(K8sClient, K8sError) {
   ))
 }
 
+/// Configure one client without changing defaults for other consumers.
+pub fn with_http_options(
+  client: K8sClient,
+  options: transport.Options,
+) -> K8sClient {
+  case client {
+    K8sConfigured(inner, _) -> K8sConfigured(inner, options)
+    _ -> K8sConfigured(client, options)
+  }
+}
+
 pub fn mock(mock_fn: MockFn) -> K8sClient {
   K8sMock(
     base_path: "",
@@ -78,6 +93,7 @@ pub fn clear_default_namespace(client: K8sClient) -> K8sClient {
 
 pub fn default_namespace(client: K8sClient) -> Option(String) {
   case client {
+    K8sConfigured(inner, _) -> default_namespace(inner)
     K8sHttp(default_namespace: namespace, ..) -> namespace
     K8sMock(default_namespace: namespace, ..) -> namespace
   }
@@ -87,6 +103,8 @@ pub fn add_header(client: K8sClient, key: String, value: String) -> K8sClient {
   let normalised = string.lowercase(key)
 
   case client {
+    K8sConfigured(inner, options) ->
+      K8sConfigured(add_header(inner, key, value), options)
     K8sHttp(
       scheme: scheme,
       host: host,
@@ -138,7 +156,21 @@ pub fn send_request(
   headers: List(#(String, String)),
   body: Option(String),
 ) -> Result(Response(String), K8sError) {
+  send_with(client, method, path, query, headers, body, None)
+}
+
+fn send_with(
+  client: K8sClient,
+  method: Method,
+  path: String,
+  query: List(#(String, String)),
+  headers: List(#(String, String)),
+  body: Option(String),
+  http_options: Option(transport.Options),
+) -> Result(Response(String), K8sError) {
   case client {
+    K8sConfigured(inner, options) ->
+      send_with(inner, method, path, query, headers, body, Some(options))
     K8sHttp(
       scheme: scheme,
       host: host,
@@ -159,8 +191,7 @@ pub fn send_request(
       |> maybe_set_query(query)
       |> apply_headers(combined_headers)
       |> maybe_set_body(body)
-      |> hackney.send()
-      |> result_or_error()
+      |> send_http(http_options)
       |> ensure_success_or_error()
     }
 
@@ -180,6 +211,16 @@ pub fn send_request(
       )
       |> ensure_success_or_error()
     }
+  }
+}
+
+fn send_http(
+  req: request.Request(String),
+  options: Option(transport.Options),
+) -> Result(Response(String), K8sError) {
+  case options {
+    None -> req |> hackney.send |> result_or_error
+    Some(options) -> transport.send(req, options) |> result.map_error(Transport)
   }
 }
 
@@ -203,6 +244,7 @@ pub fn send_json_request(
 
 pub fn humanize_error(error: K8sError) -> String {
   case error {
+    Transport(_) -> "Configured Kubernetes HTTP transport failed"
     InvalidUrl(url) -> "Invalid Kubernetes API URL: " <> url
     Http(hackney.InvalidUtf8Response) ->
       "Invalid UTF-8 response from Kubernetes API"
@@ -220,6 +262,8 @@ pub fn humanize_error(error: K8sError) -> String {
 
 fn set_namespace(client: K8sClient, namespace: Option(String)) -> K8sClient {
   case client {
+    K8sConfigured(inner, options) ->
+      K8sConfigured(set_namespace(inner, namespace), options)
     K8sHttp(
       scheme: scheme,
       host: host,

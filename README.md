@@ -34,3 +34,26 @@ gleam add dockside
 ```
 
 and its documentation can be found at <https://hexdocs.pm/dockside>.
+
+### Kubernetes HTTP transport options
+
+Existing `k8s.from_url` clients keep their transport behavior. To configure one
+client, wrap it with `k8s.with_http_options(client, transport.defaults())` from
+`dockside/k8s/transport`. `Options` selects a PEM `ca_file` (or system roots),
+peer and hostname verification, TCP connect/read timeouts, a whole-request timeout,
+and redirect handling. Defaults verify TLS, refuse redirects, and use 10 seconds
+for all three timeouts. Positive timeouts must fit in 32 unsigned bits.
+
+Configured requests use dedicated connections. The whole-request deadline covers
+DNS, connection, TLS (including a stalled handshake), headers, and body, including a body that continuously sends
+bytes. Hackney’s connect timeout covers TCP setup; the whole-request deadline
+bounds the TLS handshake. Deadline expiry or caller termination kills the connection owner; completed
+requests release their connections. CA files are decoded on each request so
+replacing a file at the same path updates trust. The `Transport` error variant
+contains a fixed category, without request credentials or response bodies.
+Existing status/decode errors retain their existing contracts.
+
+Run `node test/scripts/transport.mjs` with Node 20+ and OpenSSL to exercise a local
+HTTPS fixture. It checks trusted/untrusted CA chains, wrong hostnames, redirect
+isolation, stalled and trickling deadlines, caller cancellation, socket cleanup,
+and CA rotation. Temporary certificate keys and servers are removed on exit.
