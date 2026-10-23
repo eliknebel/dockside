@@ -3,6 +3,7 @@ import dockside/k8s
 import dockside/k8s/transport
 import envoy
 import gleam/http
+import gleam/http/response
 import gleam/option.{None, Some}
 import gleeunit/should
 
@@ -39,6 +40,45 @@ pub fn main() {
     "/ok",
   )
   |> should.equal(Error(k8s.Transport(transport.InvalidOptions)))
+  // Preparation itself must send no request, and cancellation is repeatable.
+  let assert Ok(unstarted) =
+    k8s.prepare_request(client, http.Get, "/never-start", [], [], None)
+  k8s.cancel_request(unstarted) |> should.equal(Ok(Nil))
+  k8s.cancel_request(unstarted) |> should.equal(Ok(Nil))
+  // Cancellation acknowledges the transport owner, not merely its caller.
+  cancel_waits_for_owner(
+    fn() {
+      k8s.prepare_request(client, http.Get, "/cancel-stall", [], [], None)
+    },
+    k8s.await_request,
+    k8s.cancel_request,
+    fn() { get(client, "/wait-cancel-stall") },
+    fn() { get(client, "/replacement") },
+  )
+  |> should.be_true
+  cancel_active(
+    fn() {
+      k8s.prepare_request(client, http.Get, "/cancel-stall", [], [], None)
+    },
+    k8s.await_request,
+    k8s.cancel_request,
+    fn() { get(client, "/wait-cancel-stall") },
+  )
+  |> should.be_true
+  guardian_failure(
+    fn() {
+      k8s.prepare_request(client, http.Get, "/failure-stall", [], [], None)
+    },
+    k8s.await_request,
+    k8s.cancel_request,
+    fn() { get(client, "/wait-failure-stall") },
+  )
+  |> should.be_true
+  let assert Ok(completed) =
+    k8s.prepare_request(client, http.Get, "/ok", [], [], None)
+  let assert Ok(response) = k8s.await_request(completed)
+  response.body |> should.equal("ok")
+  k8s.cancel_request(completed) |> should.equal(Ok(Nil))
   // Replacing a CA at the same path must not reuse OTP's cached PEM contents.
   let original = read_file(ca)
   write_file(ca, read_file(wrong_ca))
@@ -100,3 +140,31 @@ fn read_file(path: String) -> String
 
 @external(erlang, "transport_test_helpers", "write_file")
 fn write_file(path: String, contents: String) -> Nil
+
+@external(erlang, "transport_test_helpers", "cancel_waits_for_owner")
+fn cancel_waits_for_owner(
+  prepare: fn() -> Result(k8s.PendingRequest, k8s.K8sError),
+  await_response: fn(k8s.PendingRequest) ->
+    Result(response.Response(String), k8s.K8sError),
+  cancel: fn(k8s.PendingRequest) -> Result(Nil, k8s.K8sError),
+  ready: fn() -> Result(response.Response(String), k8s.K8sError),
+  replacement: fn() -> Result(response.Response(String), k8s.K8sError),
+) -> Bool
+
+@external(erlang, "transport_test_helpers", "cancel_active")
+fn cancel_active(
+  prepare: fn() -> Result(k8s.PendingRequest, k8s.K8sError),
+  await_response: fn(k8s.PendingRequest) ->
+    Result(response.Response(String), k8s.K8sError),
+  cancel: fn(k8s.PendingRequest) -> Result(Nil, k8s.K8sError),
+  ready: fn() -> Result(response.Response(String), k8s.K8sError),
+) -> Bool
+
+@external(erlang, "transport_test_helpers", "guardian_failure")
+fn guardian_failure(
+  prepare: fn() -> Result(k8s.PendingRequest, k8s.K8sError),
+  await_response: fn(k8s.PendingRequest) ->
+    Result(response.Response(String), k8s.K8sError),
+  cancel: fn(k8s.PendingRequest) -> Result(Nil, k8s.K8sError),
+  ready: fn() -> Result(response.Response(String), k8s.K8sError),
+) -> Bool

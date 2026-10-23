@@ -383,3 +383,34 @@ pub fn apps_list_daemon_sets_test() {
   )
   |> should.equal(Ok("{\"kind\":\"DaemonSetList\"}"))
 }
+
+/// Prepared mocks preserve request metadata and defer execution until awaited.
+pub fn prepared_requests_keep_mock_and_status_contracts_test() {
+  let cancelled =
+    k8s.mock(fn(_, _, _, _, _) { panic as "cancelled mock executed" })
+  let assert Ok(unstarted) =
+    k8s.prepare_request(cancelled, Get, "/never", [], [], option.None)
+  k8s.cancel_request(unstarted) |> should.equal(Ok(Nil))
+  let client =
+    k8s.mock(fn(method, path, query, body, headers) {
+      method |> should.equal(Get)
+      path |> should.equal("/api/v1/pods")
+      query |> should.equal([#("limit", "100")])
+      body |> should.equal(option.None)
+      list.key_find(headers, "authorization")
+      |> should.equal(Ok("Bearer test-only"))
+      Ok(response.new(403) |> response.set_body("denied"))
+    })
+    |> k8s.with_bearer_token("test-only")
+  let assert Ok(pending) =
+    k8s.prepare_request(
+      client,
+      Get,
+      "/api/v1/pods",
+      [#("limit", "100")],
+      [],
+      option.None,
+    )
+  k8s.await_request(pending)
+  |> should.equal(Error(k8s.UnexpectedStatus(403, "denied")))
+}
