@@ -57,3 +57,26 @@ Run `node test/scripts/transport.mjs` with Node 20+ and OpenSSL to exercise a lo
 HTTPS fixture. It checks trusted/untrusted CA chains, wrong hostnames, redirect
 isolation, stalled and trickling deadlines, caller cancellation, socket cleanup,
 and CA rotation. Temporary certificate keys and servers are removed on exit.
+
+### Explicit Kubernetes request cancellation
+
+`k8s.prepare_request` returns an opaque `PendingRequest` without starting network
+I/O. The creating worker must register that handle with its lifecycle owner
+before calling `k8s.await_request`. Await starts the request and preserves ordinary
+response/status handling. The owner may call `k8s.cancel_request` from another
+process; a successful result acknowledges connection-owner exit, even if the
+creating worker died. Wait for that result before launching replacement work.
+Caller termination alone is not a cleanup acknowledgment.
+
+Handles are single-use: await once in the creating process; do not await a cancelled
+handle. Cancellation is safe to repeat. An awaiting request returns
+`Transport(Cancelled)` when cancellation interrupts it. A handle-owned completion marker records confirmed connection-owner exit.
+Late or repeated cancellation checks this marker; an earlier guardian failure
+without confirmed cleanup returns an error, even after its process has disappeared. Creating-process death
+also releases a prepared handle that never started. Mock requests remain lazy and
+have no owned connection. For the explicit API, unconfigured HTTP clients use the
+owned transport's defaults; existing `send_request` behavior is unchanged.
+
+The TLS fixture also verifies that preparation sends no request, repeated cancel
+is safe, cancellation waits while guardian cleanup is deliberately paused, and an
+immediately started replacement has no overlap with the cancelled connection.

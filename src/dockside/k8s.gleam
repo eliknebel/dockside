@@ -159,6 +159,85 @@ pub fn send_request(
   send_with(client, method, path, query, headers, body, None)
 }
 
+/// A prepared single-use request. No upstream connection exists before await.
+pub opaque type PendingRequest {
+  HttpRequest(transport.RequestHandle)
+  MockRequest(fn() -> Result(Response(String), K8sError))
+}
+
+/// Prepares an owned cancellable request without I/O. Register the returned
+/// handle before starting it with await_request in the creating process. Uses
+/// configured options, or owned-transport defaults for an unconfigured client.
+pub fn prepare_request(
+  client: K8sClient,
+  method: Method,
+  path: String,
+  query: List(#(String, String)),
+  headers: List(#(String, String)),
+  body: Option(String),
+) -> Result(PendingRequest, K8sError) {
+  prepare_with(client, method, path, query, headers, body, transport.defaults())
+}
+
+fn prepare_with(client, method, path, query, headers, body, options) {
+  case client {
+    K8sConfigured(inner, options) ->
+      prepare_with(inner, method, path, query, headers, body, options)
+    K8sHttp(
+      scheme: scheme,
+      host: host,
+      port: port,
+      base_path: base_path,
+      default_headers: default_headers,
+      ..,
+    ) -> {
+      request.new()
+      |> request.set_method(method)
+      |> request.set_scheme(scheme)
+      |> request.set_host(host)
+      |> maybe_set_port(port)
+      |> request.set_path(build_path(base_path, path))
+      |> maybe_set_query(query)
+      |> apply_headers(combine_headers(default_headers, headers))
+      |> maybe_set_body(body)
+      |> transport.prepare(options)
+      |> result.map(HttpRequest)
+      |> result.map_error(Transport)
+    }
+    K8sMock(..) ->
+      Ok(
+        MockRequest(fn() {
+          send_request(client, method, path, query, headers, body)
+        }),
+      )
+  }
+}
+
+/// Executes a prepared request once, in its creating process, preserving status
+/// and error mapping. Do not await a handle after cancelling it.
+pub fn await_request(
+  pending: PendingRequest,
+) -> Result(Response(String), K8sError) {
+  case pending {
+    HttpRequest(handle) ->
+      transport.await_response(handle)
+      |> result.map_error(Transport)
+      |> ensure_success_or_error
+    MockRequest(run) -> run()
+  }
+}
+
+/// Cancels and waits for connection-owner exit. Repeat calls are safe. A failure
+/// means cleanup cannot be confirmed; do not start replacement work in that case.
+/// Mock requests have no owned connection and must not be awaited after cancel.
+pub fn cancel_request(pending: PendingRequest) -> Result(Nil, K8sError) {
+  case pending {
+    HttpRequest(handle) ->
+      transport.cancel(handle) |> result.map_error(Transport)
+    MockRequest(_) -> Ok(Nil)
+  }
+}
+
 fn send_with(
   client: K8sClient,
   method: Method,

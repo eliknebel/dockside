@@ -33,6 +33,11 @@ try {
   const wrong = generate('wrong', 'wrong.example');
   const sockets = new Set();
   let redirected = 0;
+  let neverStarted = 0;
+  const cancellingSockets = new Set();
+  const waitingForCancellation = [];
+  const failingSockets = new Set();
+  const waitingForFailure = [];
   const serve = async (tls, handler) => {
     const server = https.createServer(tls, handler);
     servers.push(server);
@@ -41,7 +46,24 @@ try {
   };
   const target = await serve(trusted, (_req, res) => { redirected++; res.end('forwarded'); });
   const url = await serve(trusted, (req, res) => {
-    if (req.url === '/redirect') { res.writeHead(302, {location: `${target}/stolen`}); res.end(); }
+    if (req.url === '/cancel-stall') {
+      cancellingSockets.add(req.socket);
+      req.socket.on('close', () => cancellingSockets.delete(req.socket));
+      for (const pending of waitingForCancellation.splice(0)) pending.end('ready');
+    } else if (req.url === '/failure-stall') {
+      failingSockets.add(req.socket);
+      req.socket.on('close', () => failingSockets.delete(req.socket));
+      for (const pending of waitingForFailure.splice(0)) pending.end('ready');
+    } else if (req.url === '/wait-failure-stall') {
+      if (failingSockets.size) res.end('ready');
+      else waitingForFailure.push(res);
+    } else if (req.url === '/wait-cancel-stall') {
+      if (cancellingSockets.size) res.end('ready');
+      else waitingForCancellation.push(res);
+    } else if (req.url === '/replacement') {
+      res.end(cancellingSockets.size === 0 ? 'no overlap' : 'overlap');
+    } else if (req.url === '/never-start') { neverStarted++; res.end('unexpected'); }
+    else if (req.url === '/redirect') { res.writeHead(302, {location: `${target}/stolen`}); res.end(); }
     else if (req.url === '/stall') { /* wait for client cancellation */ }
     else if (req.url === '/trickle') {
       res.writeHead(200); res.write('a');
@@ -72,8 +94,11 @@ try {
   clearTimeout(timer);
   if (code !== 0) throw new Error(`Transport tests failed: ${code}`);
   if (output.includes('sentinel-private-token')) throw new Error('Credential appeared in output');
+  if (neverStarted !== 0) throw new Error('Prepared request started before await');
+  if (failingSockets.size !== 0) throw new Error('Failed guardian left its socket open');
+  if (cancellingSockets.size !== 0) throw new Error('Cancelled socket remained open');
   if (redirected !== 0) throw new Error('Redirect forwarded credentials');
-  console.log('TLS, deadlines, caller cancellation, socket cleanup and redirect isolation passed.');
+  console.log('TLS, deadlines, caller cancellation, acknowledged cancellation without overlap, socket cleanup and redirect isolation passed.');
 } finally {
   for (const server of servers) { server.closeAllConnections?.(); server.close(); }
   for (const socket of stalledSockets) socket.destroy();

@@ -1,47 +1,96 @@
 -module(dockside_k8s_transport).
--export([send/5]).
+-export([send/5, prepare/5, await/1, cancel/1]).
 
-%% A guardian bounds the entire operation, including DNS, TLS, and trickling
-%% bodies. It also cancels the connection owner when the calling process dies.
-%% No process changes the caller's trap_exit flag or global Hackney options.
-send(Method, Url, Headers, Body,
-     {options, Ca, Verify, Connect, Read, Deadline, Redirects})
+%% A prepared request starts no connection. Its creator can register the handle
+%% with a lifecycle owner before await starts I/O; cancellation then always has
+%% an explicit acknowledgment, including when the creator is concurrently dying.
+prepare(Method, Url, Headers, Body,
+        {options, Ca, Verify, Connect, Read, Deadline, Redirects})
   when is_integer(Connect), Connect > 0, Connect =< 4294967295,
        is_integer(Read), Read > 0, Read =< 4294967295,
        is_integer(Deadline), Deadline > 0, Deadline =< 4294967295 ->
     Caller = self(),
-    {Guardian, Ref} = spawn_monitor(fun() ->
+    Token = make_ref(),
+    %% A monitor reports noproc after any earlier exit, including an unclean kill.
+    %% Keep a completion receipt in the handle so late cancel can distinguish it.
+    %% The atomic is garbage-collected with the handle; no tracker process survives.
+    Completed = atomics:new(1, []),
+    Guardian = spawn(fun() ->
         process_flag(trap_exit, true),
         CallerRef = monitor(process, Caller),
-        Worker = spawn_link(fun() ->
-            Result = try
-                Options = [{pool, false}, {with_body, true},
-                           {connect_timeout, min(Connect, Deadline)},
-                           {recv_timeout, min(Read, Deadline)},
-                           {follow_redirect, Redirects},
-                           {ssl_options, ssl_options(Ca, Verify)}],
-                response(hackney:request(Method, Url, Headers, Body, Options))
-            catch _:_ -> {error, unavailable}
-            end,
-            exit({completed, Result})
-        end),
         receive
-            {'EXIT', Worker, {completed, Result}} ->
-                demonitor(CallerRef, [flush]),
-                exit({completed, Result});
-            {'EXIT', Worker, _} -> exit({completed, {error, unavailable}});
-            {'DOWN', CallerRef, process, Caller, _} ->
-                stop_worker(Worker), exit(normal)
-        after Deadline ->
-            stop_worker(Worker),
-            exit({completed, {error, timeout}})
+            {execute, Token, Caller} ->
+                Worker = spawn_link(fun() ->
+                    Result = try
+                        Options = [{pool, false}, {with_body, true},
+                                   {connect_timeout, min(Connect, Deadline)},
+                                   {recv_timeout, min(Read, Deadline)},
+                                   {follow_redirect, Redirects},
+                                   {ssl_options, ssl_options(Ca, Verify)}],
+                        response(hackney:request(Method, Url, Headers, Body, Options))
+                    catch _:_ -> {error, unavailable}
+                    end,
+                    exit({completed, Result})
+                end),
+                running(Caller, CallerRef, Worker, Token, Deadline, Completed);
+            {cancel, Token} -> finish(Completed, {completed, {error, cancelled}});
+            {'DOWN', CallerRef, process, Caller, _} -> finish(Completed, normal)
         end
     end),
+    {ok, {request, Guardian, Token, Caller, Completed}};
+prepare(_, _, _, _, _) -> {error, invalid_options}.
+
+running(Caller, CallerRef, Worker, Token, Deadline, Completed) ->
+    receive
+        {'EXIT', Worker, {completed, Result}} ->
+            demonitor(CallerRef, [flush]),
+            finish(Completed, {completed, Result});
+        {'EXIT', Worker, _} -> finish(Completed, {completed, {error, unavailable}});
+        {cancel, Token} ->
+            stop_worker(Worker),
+            finish(Completed, {completed, {error, cancelled}});
+        {'DOWN', CallerRef, process, Caller, _} ->
+            stop_worker(Worker), finish(Completed, normal)
+    after Deadline ->
+        stop_worker(Worker),
+        finish(Completed, {completed, {error, timeout}})
+    end.
+
+%% Only the creator may await; this prevents unowned execution after transfer.
+%% The monitor is installed before execution can complete.
+await({request, Guardian, Token, Caller, _}) when Caller =:= self() ->
+    Ref = monitor(process, Guardian),
+    Guardian ! {execute, Token, Caller},
     receive
         {'DOWN', Ref, process, Guardian, {completed, Result}} -> Result;
         {'DOWN', Ref, process, Guardian, _} -> {error, unavailable}
     end;
-send(_, _, _, _, _) -> {error, invalid_options}.
+await(_) -> {error, invalid_options}.
+
+%% Any holder may cancel. A successful return means this guardian has completed
+%% its connection-owner shutdown; caller DOWN alone does not provide that guarantee.
+%% No connection is started by cancellation; repeated cancellation is harmless.
+cancel({request, Guardian, Token, _, Completed}) ->
+    Ref = monitor(process, Guardian),
+    Guardian ! {cancel, Token},
+    receive
+        {'DOWN', Ref, process, Guardian, _} ->
+            case atomics:get(Completed, 1) of
+                1 -> {ok, nil};
+                0 -> {error, unavailable}
+            end
+    end.
+
+%% Called only with no connection started or after the worker's EXIT signal.
+finish(Completed, Reason) ->
+    atomics:put(Completed, 1, 1),
+    exit(Reason).
+
+send(Method, Url, Headers, Body, Options) ->
+    case prepare(Method, Url, Headers, Body, Options) of
+        {ok, Request} -> await(Request);
+        Error -> Error
+    end.
 
 stop_worker(Worker) ->
     exit(Worker, kill),
