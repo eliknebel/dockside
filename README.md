@@ -80,3 +80,63 @@ owned transport's defaults; existing `send_request` behavior is unchanged.
 The TLS fixture also verifies that preparation sends no request, repeated cancel
 is safe, cancellation waits while guardian cleanup is deliberately paused, and an
 immediately started replacement has no overlap with the cancelled connection.
+
+### Owned container log streams
+
+`core.prepare_pod_log_stream(client, namespace, pod, container, tail_lines)`
+prepares one explicit container follow without network I/O. The tail must be a
+positive 32-bit signed count; callers select their own smaller retention bound.
+Register the handle with the lifecycle owner, then call `k8s.start_stream` in the
+creating process. It returns status and headers before body completion.
+`k8s.next_chunk` returns `transport.Chunk(BitArray)` of at most 65,536 bytes or
+`transport.End`. Only the creator can start/read, with one synchronous read at a
+time. Available fragments are returned without waiting to fill a batch or a
+whole HTTP transfer chunk. After EOF/error, cancel to confirm cleanup; do not
+restart or read that handle again.
+
+`k8s.cancel_stream` can run from another process, including while headers or body
+reads are blocked. Success acknowledges connection-owner exit and is repeatable.
+Creator death also cleans up. An unexpected guardian death yields a failed
+receipt; callers must not begin replacement work without confirmed cleanup.
+
+The configured request timeout bounds connection/TLS/headers only. Healthy quiet
+body reads have no idle or total deadline; `read_timeout_ms` remains meaningful
+for finite requests but does not end a follow. Streams require `verify_peer=True`
+and `follow_redirects=False`. Non-success status errors contain no upstream body.
+The wrapper sends an explicit container, `follow=true`, `previous=false`,
+`timestamps=true`, `tailLines`, and no `limitBytes`. Existing finite APIs and their
+options remain unchanged, including callers' bounded historical requests.
+
+Supply a freshly configured client for each opening/reconnect so bearer-token
+rotation is observed; Dockside takes token values, not token file paths. CA files
+are decoded when opening each connection. Plasma Core owns token-file loading,
+source identity validation, retries, parsing log records and presentation.
+Finite `K8sMock` clients cannot emulate streaming; inject typed stream operations
+at the consuming application's adapter boundary.
+
+The installed first-party Gleam Hackney/httpc APIs expose full responses and do
+not expose the owned interruptible pull contract. Hackney 1.25's synchronous body
+parser waits for the complete advertised transfer chunk: a controlled partial
+8 MiB chunk caused roughly 8 MiB of VM binary allocation before returning data.
+The narrow Erlang stream binding retains Hackney request/TLS setup, then detaches
+its owned socket and frames chunked, Content-Length or close-delimited bodies.
+It caps raw reads at 64 KiB, framing lines at 8 KiB and trailers at 16 KiB, and
+copies delivered/retained slices so they do not retain consumed backing binaries.
+Malformed/truncated framing fails safely; unsupported content encodings and
+ambiguous framing are rejected. `accept-encoding: identity` is sent explicitly.
+The only internal Hackney access retrieves bytes already buffered while reading
+headers (the public detach API omits that parser buffer). The dependency is
+therefore constrained to 1.25.x, with coalesced header/body and cancellation tests.
+No Hackney major upgrade or dependency-cache modification is required.
+
+Run `node test/scripts/stream.mjs` after `gleam build` for real local HTTP/TLS
+qualification. It includes separated fragments, a 31-second quiet follow, startup
+timeouts, CA/hostname verification and CA rotation, explicit container/token
+routing, safe statuses, disabled redirects, cancellation and creator/guardian
+failure, malformed/split framing and resource measurements while an advertised
+256 MiB transfer chunk remains incomplete. It checks owned process exits, peer
+closure and no retained connections, including immediate replacement checks.
+The retained resource test checks partial oversized chunks, released backing
+binaries, and buffering while the caller stops pulling. These fixtures use no
+cluster credentials. The initial disposable Hackney prototype was removed after
+recording its measured allocation and cancellation results in the work-item evidence.

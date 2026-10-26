@@ -1,5 +1,5 @@
 -module(dockside_k8s_transport).
--export([send/5, prepare/5, await/1, cancel/1]).
+-export([send/5, prepare/5, await/1, cancel/1, ssl_options/2, category/1]).
 
 %% A prepared request starts no connection. Its creator can register the handle
 %% with a lifecycle owner before await starts I/O; cancellation then always has

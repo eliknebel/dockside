@@ -526,3 +526,80 @@ fn default_headers() -> List(#(String, String)) {
     #("user-agent", "dockside-k8s"),
   ]
 }
+
+/// An owned HTTP stream. Finite mock clients cannot provide incremental I/O;
+/// callers testing streams should inject typed stream operations instead.
+pub opaque type PendingStream {
+  HttpStream(transport.StreamHandle)
+}
+
+/// Prepares a GET stream without I/O, using configured or safe default transport
+/// options. Register the returned handle before starting it in this process.
+/// Supply fresh credentials when constructing the client for each opening.
+pub fn prepare_stream_request(
+  client: K8sClient,
+  path: String,
+  query: List(#(String, String)),
+) -> Result(PendingStream, K8sError) {
+  prepare_stream_with(client, path, query, transport.defaults())
+}
+
+fn prepare_stream_with(client, path, query, options) {
+  case client {
+    K8sConfigured(inner, options) ->
+      prepare_stream_with(inner, path, query, options)
+    K8sHttp(
+      scheme: scheme,
+      host: host,
+      port: port,
+      base_path: base_path,
+      default_headers: headers,
+      ..,
+    ) ->
+      request.new()
+      |> request.set_method(http.Get)
+      |> request.set_scheme(scheme)
+      |> request.set_host(host)
+      |> maybe_set_port(port)
+      |> request.set_path(build_path(base_path, path))
+      |> maybe_set_query(query)
+      |> apply_headers(headers)
+      |> request.set_header("accept-encoding", "identity")
+      |> transport.prepare_stream(options)
+      |> result.map(HttpStream)
+      |> result.map_error(Transport)
+    K8sMock(..) -> Error(Transport(transport.InvalidOptions))
+  }
+}
+
+/// Opens the prepared stream once in its creator. Non-success statuses close
+/// the connection and return only their status, with an empty error body.
+pub fn start_stream(pending: PendingStream) -> Result(Response(Nil), K8sError) {
+  let HttpStream(handle) = pending
+  use head <- result.try(
+    transport.start_stream(handle) |> result.map_error(Transport),
+  )
+  case head.status >= 200 && head.status < 300 {
+    True -> Ok(head)
+    False -> {
+      use _ <- result.try(cancel_stream(pending))
+      Error(UnexpectedStatus(head.status, ""))
+    }
+  }
+}
+
+/// Reads one available bounded byte fragment, or clean EOF, in the creator.
+/// There is one read in flight; another holder can interrupt it with cancellation.
+pub fn next_chunk(
+  pending: PendingStream,
+) -> Result(transport.StreamChunk, K8sError) {
+  let HttpStream(handle) = pending
+  transport.next_chunk(handle) |> result.map_error(Transport)
+}
+
+/// Cancels and acknowledges connection-owner exit. Safe before start and after
+/// EOF or earlier cancellation. Never replace work when this returns an error.
+pub fn cancel_stream(pending: PendingStream) -> Result(Nil, K8sError) {
+  let HttpStream(handle) = pending
+  transport.cancel_stream(handle) |> result.map_error(Transport)
+}

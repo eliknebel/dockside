@@ -2,6 +2,7 @@ import dockside/k8s
 import dockside/k8s/options
 import dockside/k8s/paths
 import dockside/k8s/request_helpers
+import dockside/k8s/transport
 import gleam/http.{Delete, Get, Post, Put}
 import gleam/int
 import gleam/json
@@ -494,5 +495,38 @@ fn append_flag(
   case value {
     True -> list.append(query, [#(key, "true")])
     False -> query
+  }
+}
+
+/// Prepares one named container's live log stream without network I/O. Requires
+/// explicit non-empty namespace/pod/container and a positive bounded tail count.
+/// Uses follow=true, timestamps=true, previous=false and no terminating byte cap.
+/// Finite pod_logs and PodLogOptions retain their existing behavior.
+pub fn prepare_pod_log_stream(
+  client: k8s.K8sClient,
+  namespace: String,
+  pod: String,
+  container: String,
+  tail_lines: Int,
+) -> Result(k8s.PendingStream, k8s.K8sError) {
+  case
+    namespace != ""
+    && pod != ""
+    && container != ""
+    && tail_lines > 0
+    && tail_lines <= 2_147_483_647
+  {
+    False -> Error(k8s.Transport(transport.InvalidOptions))
+    True -> {
+      let path =
+        paths.subresource_path(core_v1, Some(namespace), "pods", pod, "log")
+      k8s.prepare_stream_request(client, path, [
+        #("container", container),
+        #("follow", "true"),
+        #("previous", "false"),
+        #("timestamps", "true"),
+        #("tailLines", int.to_string(tail_lines)),
+      ])
+    }
   }
 }

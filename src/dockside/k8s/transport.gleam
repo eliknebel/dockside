@@ -100,3 +100,64 @@ fn prepare_bits(
 
 @external(erlang, "dockside_k8s_transport", "await")
 fn await_bits(handle: RequestHandle) -> Result(Response(BitArray), Error)
+
+/// Opaque single-use HTTP follow lifetime. Preparation starts no connection.
+pub type StreamHandle
+
+/// One available body fragment (at most 65,536 bytes), or a clean response end.
+pub type StreamChunk {
+  Chunk(BitArray)
+  End
+}
+
+/// Prepares an owned pull stream without network I/O. Only the creating process
+/// can start/read it; any holder may cancel. Streams require verified TLS and
+/// disabled redirects. The request timeout bounds startup/headers only.
+pub fn prepare_stream(
+  req: Request(String),
+  options: Options,
+) -> Result(StreamHandle, Error) {
+  prepare_stream_bits(
+    req.method,
+    req |> request.to_uri |> uri.to_string,
+    req.headers,
+    req.body,
+    options,
+  )
+}
+
+/// Starts once in the creating process and returns headers before body completion.
+/// Healthy body reads have no idle deadline. Register the handle before starting.
+pub fn start_stream(handle: StreamHandle) -> Result(Response(Nil), Error) {
+  use head <- result.try(start_stream_bits(handle))
+  Ok(
+    response.Response(
+      ..head,
+      headers: list.map(head.headers, fn(header) {
+        #(string.lowercase(header.0), header.1)
+      }),
+    ),
+  )
+}
+
+@external(erlang, "dockside_k8s_stream", "start")
+fn start_stream_bits(handle: StreamHandle) -> Result(Response(Nil), Error)
+
+/// Reads one available fragment in the creating process. Does not wait to fill
+/// a batch or an advertised HTTP chunk. Cancel from another holder to interrupt.
+@external(erlang, "dockside_k8s_stream", "next")
+pub fn next_chunk(handle: StreamHandle) -> Result(StreamChunk, Error)
+
+/// Cancels even a blocked header/body read and waits for connection-owner exit.
+/// Repeatable; a failed cleanup receipt must prevent replacement work.
+@external(erlang, "dockside_k8s_stream", "cancel")
+pub fn cancel_stream(handle: StreamHandle) -> Result(Nil, Error)
+
+@external(erlang, "dockside_k8s_stream", "prepare")
+fn prepare_stream_bits(
+  method: http.Method,
+  url: String,
+  headers: List(#(String, String)),
+  body: String,
+  options: Options,
+) -> Result(StreamHandle, Error)
